@@ -6,7 +6,7 @@ export const MIN_TRADES = 50;
 /** "stop-loss -26%" → "stop-loss", "mirror exit (2/3 wallets sold)" → "mirror exit". */
 const exitKind = (r: string | null) =>
   (r ?? "unknown")
-    .replace(/\(.*\)/g, "")
+    .split(/[:(]/)[0] // "insider dump: …", "momentum faded (…)", "mirror exit (…)" → just the name
     .replace(/[-+]?\d+(\.\d+)?\s*(%|m|SOL)?/g, "")
     .trim();
 

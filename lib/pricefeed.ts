@@ -6,10 +6,40 @@
  * constant-product (vSol × vTok = k, fees are paid outside the curve), so from one full read we
  * know k and the gap between the account's lamports and vSol, and can price every update from
  * lamports alone. When a provider does send the data, it's decoded exactly.
+ *
+ * Every SOL movement in or out of the curve / pool is also recorded as order flow (in = buy,
+ * out = sell), which the momentum-fade exit reads.
  */
+import { PublicKey } from "@solana/web3.js";
 import { jupSellPrice, pumpSwapPair } from "./market";
-import { bondingCurvePda, conn, decodeBondingCurve, poolSolVault, PUMP_DECIMALS, PUMP_PROGRAM } from "./solana";
+import { ata, bondingCurvePda, conn, decodeBondingCurve, poolSolVault, PUMP_DECIMALS, PUMP_PROGRAM } from "./solana";
 import { stream } from "./stream";
+
+/* ---------- order flow ---------- */
+
+const flows = new Map<number, { t: number; sol: number }[]>(); // position id → signed SOL moves (+ buy, − sell)
+
+function recordFlow(id: number, sol: number) {
+  if (!Number.isFinite(sol) || Math.abs(sol) < 1e-6) return;
+  const now = Date.now();
+  const f = (flows.get(id) ?? []).filter((x) => now - x.t < 10 * 60_000);
+  f.push({ t: now, sol });
+  flows.set(id, f);
+}
+
+/** Buys and sells (count and SOL) on the coin over the last `windowSec` seconds. */
+export function flowStats(id: number, windowSec: number) {
+  const since = Date.now() - windowSec * 1000;
+  const f = (flows.get(id) ?? []).filter((x) => x.t >= since);
+  const buys = f.filter((x) => x.sol > 0);
+  const sells = f.filter((x) => x.sol < 0);
+  return {
+    buys: buys.length,
+    sells: sells.length,
+    buySol: buys.reduce((s, x) => s + x.sol, 0),
+    sellSol: -sells.reduce((s, x) => s + x.sol, 0),
+  };
+}
 
 type OpenPos = { id: number; mint: string; pool: string | null; remainingTokens: number };
 
@@ -33,6 +63,7 @@ async function open(positionId: number, mint: string, onPrice: (id: number, pric
   }
   const calib = calibrate(info.lamports, bc);
   let prevReal = Number(bc.realSolReserves);
+  let prevLamports = info.lamports;
 
   const stop = () => {
     const f = feeds.get(positionId);
@@ -47,6 +78,10 @@ async function open(positionId: number, mint: string, onPrice: (id: number, pric
     (r) => {
       const v = r?.value;
       if (!v) return;
+      if (typeof v.lamports === "number") {
+        recordFlow(positionId, (v.lamports - prevLamports) / 1e9);
+        prevLamports = v.lamports;
+      }
       if (Array.isArray(v.data) && v.data[1] === "base64") {
         const full = decodeBondingCurve(Buffer.from(v.data[0], "base64"));
         if (full?.complete) return stop();
@@ -82,9 +117,14 @@ async function recalibrate(f: Feed) {
   if (info && bc && !bc.complete) Object.assign(f.calib, calibrate(info.lamports, bc));
 }
 
+type PoolFeed = { subs: number[]; mint: string; q: number; b: number; decimals: number; factor: number; calibAt: number };
+const poolFeedState = new Map<number, PoolFeed>();
+
 /**
- * PumpSwap coins: any trade changes the pool's SOL vault, so a vault notification triggers a Jupiter
- * sell quote for what we hold (throttled). That's the price we'd actually get, fees and impact included.
+ * PumpSwap coins: subscribes to both pool vaults (SOL and token). Every trade changes them, so the
+ * vault ratio gives a live price on each trade. The pool's virtual reserves make the raw ratio differ
+ * from the real price, so it's scaled by a factor calibrated against a Jupiter sell quote (what we'd
+ * actually get, fees and impact included) every ~20s.
  */
 async function openPoolFeed(p: OpenPos, onPrice: (id: number, price: number) => void) {
   let pool = p.pool;
@@ -94,22 +134,54 @@ async function openPoolFeed(p: OpenPos, onPrice: (id: number, price: number) => 
     pool = (await pumpSwapPair(p.mint))?.pairAddress ?? null;
     if (!pool) return;
   }
-  let last = 0;
-  let pending = false;
-  const sub = stream().subscribe(
-    "accountSubscribe",
-    [poolSolVault(pool).toBase58(), { encoding: "jsonParsed", commitment: "confirmed" }],
-    () => {
-      if (pending || Date.now() - last < 2500) return;
-      pending = true;
-      last = Date.now();
-      jupSellPrice(p.mint, remaining.get(p.id) ?? p.remainingTokens)
-        .then((price) => price && onPrice(p.id, price))
-        .catch(() => {})
-        .finally(() => (pending = false));
-    },
+  const mintInfo = await conn().getAccountInfo(new PublicKey(p.mint), "confirmed");
+  if (!mintInfo) return;
+  const quoteVault = poolSolVault(pool);
+  const baseVault = ata(pool, p.mint, mintInfo.owner);
+  const [qb, bb] = await Promise.all([
+    conn().getTokenAccountBalance(quoteVault, "confirmed"),
+    conn().getTokenAccountBalance(baseVault, "confirmed"),
+  ]);
+  const st: PoolFeed = {
+    subs: [],
+    mint: p.mint,
+    q: Number(qb.value.amount),
+    b: Number(bb.value.amount),
+    decimals: bb.value.decimals,
+    factor: 1,
+    calibAt: 0,
+  };
+  poolFeedState.set(p.id, st);
+  await calibratePool(p.id, st);
+
+  const emit = () => {
+    if (st.q > 0 && st.b > 0) onPrice(p.id, st.factor * ratio(st));
+  };
+  const amountOf = (r: any) => Number(r?.value?.data?.parsed?.info?.tokenAmount?.amount ?? NaN);
+  st.subs.push(
+    stream().subscribe("accountSubscribe", [quoteVault.toBase58(), { encoding: "jsonParsed", commitment: "confirmed" }], (r) => {
+      const amt = amountOf(r);
+      if (!Number.isFinite(amt)) return;
+      recordFlow(p.id, (amt - st.q) / 1e9);
+      st.q = amt;
+      emit();
+    }),
+    stream().subscribe("accountSubscribe", [baseVault.toBase58(), { encoding: "jsonParsed", commitment: "confirmed" }], (r) => {
+      const amt = amountOf(r);
+      if (!Number.isFinite(amt)) return;
+      st.b = amt;
+      emit();
+    }),
   );
-  poolFeeds.set(p.id, sub);
+  poolFeeds.set(p.id, st.subs[0]);
+}
+
+const ratio = (st: PoolFeed) => st.q / 1e9 / (st.b / 10 ** st.decimals);
+
+async function calibratePool(id: number, st: PoolFeed) {
+  st.calibAt = Date.now();
+  const jp = await jupSellPrice(st.mint, remaining.get(id) || 1000).catch(() => null);
+  if (jp && st.q > 0 && st.b > 0) st.factor = jp / ratio(st);
 }
 
 /** Opens feeds for new open positions and closes feeds for positions that are gone. */
@@ -119,12 +191,15 @@ export async function syncPriceFeeds(open_: OpenPos[], onPrice: (id: number, pri
     if (!want.has(id)) {
       stream().unsubscribe(f.sub);
       feeds.delete(id);
+      flows.delete(id);
     }
   }
-  for (const [id, sub] of poolFeeds) {
+  for (const [id] of poolFeeds) {
     if (!want.has(id)) {
-      stream().unsubscribe(sub);
+      for (const sub of poolFeedState.get(id)?.subs ?? []) stream().unsubscribe(sub);
       poolFeeds.delete(id);
+      poolFeedState.delete(id);
+      flows.delete(id);
     }
   }
   for (const p of open_) {
@@ -134,6 +209,8 @@ export async function syncPriceFeeds(open_: OpenPos[], onPrice: (id: number, pri
       if (Date.now() - f.calib.at > 30_000) await recalibrate(f).catch(() => {});
     } else if (!noCurve.has(p.id)) await open(p.id, p.mint, onPrice).catch(() => {});
     if (noCurve.has(p.id) && !poolFeeds.has(p.id)) await openPoolFeed(p, onPrice).catch(() => {});
+    const pf = poolFeedState.get(p.id);
+    if (pf && Date.now() - pf.calibAt > 20_000) await calibratePool(p.id, pf);
   }
 }
 

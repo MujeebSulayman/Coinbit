@@ -2,10 +2,11 @@
 import type { Position } from "@/generated/prisma/client";
 import { config } from "./config";
 import { db, getKv, log, setKv } from "./db";
-import { buy, type ExecMode, sell } from "./executor";
+import { buy, type ExecMode, sell, traderAddress } from "./executor";
+import { type InsiderDump, syncInsiderWatch } from "./insiders";
 import type { Strategy } from "./modes";
 import { jupSellPrice, quotes } from "./market";
-import { syncPriceFeeds } from "./pricefeed";
+import { flowStats, syncPriceFeeds } from "./pricefeed";
 import { notify, short } from "./telegram";
 
 const startOfDay = () => {
@@ -221,6 +222,21 @@ async function checkExits(id: number, price: number) {
       belowStop.set(id, n);
       if (n >= config.stopConfirmTicks) {
         belowStop.delete(id);
+
+    // Momentum fade (after the first take-profit): sellers clearly took over in the last window.
+    if (p.tpHit >= 1 && config.momentumExit) {
+      const f = flowStats(id, config.momentumWindowSec);
+      if (f.buys + f.sells >= config.momentumMinTrades && f.sellSol > 0 && f.sellSol >= config.momentumSellRatio * Math.max(f.buySol, 1e-9)) {
+        await sellPart(
+          p,
+          p.remainingTokens,
+          price,
+          `momentum faded (${config.momentumWindowSec}s: ${f.sellSol.toFixed(1)} SOL sold vs ${f.buySol.toFixed(1)} bought)`,
+          true,
+        );
+        return;
+      }
+    }
         await sellPart(p, p.remainingTokens, price, `${stopKind} ${gainPct >= 0 ? "+" : ""}${gainPct.toFixed(0)}%`, true);
       }
       return;
@@ -254,10 +270,24 @@ function onLivePrice(id: number, price: number) {
   checkExits(id, price).catch(() => {});
 }
 
+const insiderExited = new Set<number>();
+/** A top holder dumped: get out now (once per position). */
+function onInsiderDump(id: number, d: InsiderDump) {
+  if (insiderExited.has(id)) return;
+  insiderExited.add(id);
+  const why = d.group
+    ? `insider dump: ${d.owner} holders (${d.heldPct.toFixed(1)}% of supply) sold ${d.soldPct.toFixed(0)}%`
+    : `insider dump: holder with ${d.heldPct.toFixed(1)}% sold ${d.soldPct.toFixed(0)}%`;
+  closePosition(id, why).catch((e) =>
+    log("trade", `insider exit on position ${id} failed: ${(e as Error).message}`),
+  );
+}
+
 /** Runs every few seconds: polls prices (covers migrated coins), handles manual closes, syncs live feeds. */
 export async function managePositions() {
   const open = await db.position.findMany({ where: { status: "OPEN" } });
   await syncPriceFeeds(open, onLivePrice);
+  await syncInsiderWatch(open, traderAddress(), onInsiderDump).catch(() => {});
   if (open.length === 0) return;
   const q = await quotes([...new Set(open.map((p) => p.mint))]);
 

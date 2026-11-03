@@ -95,6 +95,14 @@ export async function withRetry<T>(fn: () => Promise<T>, tries = 4, baseMs = 500
 const ATA_PROGRAM = new PublicKey("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
 const TOKEN_PROGRAM = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
 
+/** Associated token account of `owner` for `mint` under the given token program. */
+export function ata(owner: string | PublicKey, mint: string | PublicKey, tokenProgram: PublicKey = TOKEN_PROGRAM): PublicKey {
+  return PublicKey.findProgramAddressSync(
+    [new PublicKey(owner).toBuffer(), tokenProgram.toBuffer(), new PublicKey(mint).toBuffer()],
+    ATA_PROGRAM,
+  )[0];
+}
+
 /** A PumpSwap pool's WSOL vault (its associated token account): its balance is the pool's real SOL. */
 export function poolSolVault(pool: string): PublicKey {
   return PublicKey.findProgramAddressSync(

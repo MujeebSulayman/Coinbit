@@ -46,6 +46,15 @@ function trader(): Keypair {
   return _kp;
 }
 
+/** Our trading wallet's address, or null when no key is configured (paper only). */
+export function traderAddress(): string | null {
+  try {
+    return config.traderKey ? trader().publicKey.toBase58() : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Trade-path connections bypass the shared RPC rate limiter so exits never queue behind discovery. */
 let _fast: Connection[] | null = null;
 function fastConns(): Connection[] {

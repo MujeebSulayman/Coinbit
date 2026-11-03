@@ -61,6 +61,14 @@ export const config = {
   breakevenBufferPct: num(env.BREAKEVEN_BUFFER_PCT, 2), // sell the rest if it falls back to entry +2% (covers fees)
   trailAfterTpPct: num(env.TRAIL_AFTER_TP_PCT, 30), // ...or 30% below its peak, whichever is higher. 0 = off
   stopConfirmTicks: num(env.STOP_CONFIRM_TICKS, 2), // consecutive readings below a stop before selling
+  // Early-warning exits (both strategies)
+  insiderExit: bool(env.INSIDER_EXIT, true), // sell everything if a top holder dumps
+  insiderMinHoldPct: num(env.INSIDER_MIN_HOLD_PCT, 1), // watch the top-5 wallets holding at least this % of supply
+  insiderSellPct: num(env.INSIDER_SELL_PCT, 50), // trigger when together (or one ≥3× min holder) they've sold this share
+  momentumExit: bool(env.MOMENTUM_EXIT, true), // after TP1: sell the rest when sellers clearly take over
+  momentumWindowSec: num(env.MOMENTUM_WINDOW_SEC, 90),
+  momentumSellRatio: num(env.MOMENTUM_SELL_RATIO, 2), // sell SOL ≥ this × buy SOL in the window
+  momentumMinTrades: num(env.MOMENTUM_MIN_TRADES, 5), // ...with at least this many trades in the window
   maxRoundTripLossPct: num(env.MAX_ROUNDTRIP_LOSS_PCT, 10), // sellability: skip if buy→sell would lose more than this
   maxDevSoldPct: num(env.MAX_DEV_SOLD_PCT, 50), // skip if the creator already sold more than this % of their launch buy
 
