@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { GeistMono } from "geist/font/mono";
 import { GeistSans } from "geist/font/sans";
 import { getKv } from "@/lib/db";
+import { DialogProvider } from "./components/Dialog";
 import Nav from "./components/Nav";
 import "./globals.css";
 
@@ -25,12 +26,14 @@ async function workerStatus() {
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const status = await workerStatus();
   return (
-    <html lang="en" className={`${GeistSans.variable} ${GeistMono.variable}`}>
-      <body className="min-h-screen md:flex">
-        <Nav status={status} />
-        <main className="min-w-0 flex-1">
-          <div className="mx-auto max-w-[1400px] space-y-5 px-4 pb-16 pt-5 md:px-8 md:pt-7">{children}</div>
-        </main>
+    <html lang="en" className={`${GeistSans.variable} ${GeistMono.variable}`} suppressHydrationWarning>
+      <body className="min-h-screen md:flex" suppressHydrationWarning>
+        <DialogProvider>
+          <Nav status={status} />
+          <main className="min-w-0 flex-1">
+            <div className="mx-auto max-w-[1400px] space-y-4 px-3 pb-20 pt-4 sm:px-5 md:space-y-5 md:px-8 md:pt-7">{children}</div>
+          </main>
+        </DialogProvider>
       </body>
     </html>
   );

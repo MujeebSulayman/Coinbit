@@ -4,85 +4,203 @@ import { ago, sol, tone } from "@/lib/fmt";
 import { Button } from "../components/Controls";
 import { Addr, Badge, Coin } from "../components/ui";
 
-const signedPct = (v: number) => `${v >= 0 ? "+" : ""}${v.toFixed(0)}%`;
+const signedPct = (v: number) => `${v >= 0 ? "+" : ""}${Math.round(v) || 0}%`;
+
+function derive(p: Position) {
+  const pnl = p.realizedSol + p.remainingTokens * p.currentPriceSol - p.sizeSol;
+  return {
+    pnl,
+    pnlPct: p.sizeSol ? (pnl / p.sizeSol) * 100 : 0,
+    gain: (p.currentPriceSol / p.entryPriceSol - 1) * 100,
+    open: p.status === "OPEN",
+    levels: (p.strategy === "migration"
+      ? config.migrationTpLevels
+      : config.tpLevels
+    ).length,
+  };
+}
+
+function TpPips({ hit, levels }: { hit: number; levels: number }) {
+  return (
+    <span
+      className="inline-flex gap-0.5"
+      title={`${hit} of ${levels} take-profit levels hit`}
+    >
+      {Array.from({ length: Math.max(levels, hit) }, (_, i) => (
+        <span
+          key={i}
+          className={`h-3 w-1 rounded-full ${i < hit ? "bg-up" : "bg-line-strong"}`}
+        />
+      ))}
+    </span>
+  );
+}
+
+function CloseButton({ p }: { p: Position }) {
+  const name = p.symbol ?? "this position";
+  return (
+    <Button
+      action="close"
+      extra={{ positionId: p.id }}
+      danger
+      small
+      done={`Closing ${name}…`}
+      confirm={{
+        title: `Close ${name}?`,
+        body: "The worker will sell the remaining tokens at market on its next check.",
+        confirmLabel: "Close position",
+      }}
+    >
+      Close
+    </Button>
+  );
+}
+
+const StrategyTag = ({ p }: { p: Position }) => (
+  <span className="flex items-center gap-2">
+    <span className="text-mute">
+      {p.strategy === "migration" ? "Migration" : "Copy"}
+    </span>
+    <Badge kind={p.mode === "LIVE" ? "warn" : "mute"}>
+      {p.mode === "LIVE" ? "Live" : "Paper"}
+    </Badge>
+  </span>
+);
 
 export function PositionsTable({ rows }: { rows: Position[] }) {
   return (
-    <table>
-      <thead>
-        <tr>
-          <th>Coin</th>
-          <th>Strategy</th>
-          <th className="r">Size</th>
-          <th className="r">Price move</th>
-          <th className="r">PnL</th>
-          <th className="r">TP hit</th>
-          <th>Triggered by</th>
-          <th>Opened</th>
-          <th>Status</th>
-          <th />
-        </tr>
-      </thead>
-      <tbody>
+    <>
+      {/* Phones: one card per position */}
+      <ul className="divide-y divide-line md:hidden">
         {rows.map((p) => {
-          const value = p.realizedSol + p.remainingTokens * p.currentPriceSol;
-          const pnl = value - p.sizeSol;
-          const pnlPct = p.sizeSol ? (pnl / p.sizeSol) * 100 : 0;
-          const gain = (p.currentPriceSol / p.entryPriceSol - 1) * 100;
-          const open = p.status === "OPEN";
-          const levels = (p.strategy === "migration" ? config.migrationTpLevels : config.tpLevels).length;
+          const d = derive(p);
           return (
-            <tr key={p.id}>
-              <td>
-                <Coin mint={p.mint} symbol={p.symbol} />
-              </td>
-              <td>
-                <div className="flex items-center gap-2">
-                  <span className="text-mute">{p.strategy === "migration" ? "Migration" : "Copy"}</span>
-                  <Badge kind={p.mode === "LIVE" ? "warn" : "mute"}>{p.mode === "LIVE" ? "Live" : "Paper"}</Badge>
+            <li key={p.id} className="space-y-2.5 px-4 py-3.5">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 space-y-1">
+                  <Coin mint={p.mint} symbol={p.symbol} />
+                  <div className="pl-8 text-[12px]">
+                    <StrategyTag p={p} />
+                  </div>
                 </div>
-              </td>
-              <td className="num r text-mute">{sol(p.sizeSol)}</td>
-              <td className={`num r ${open ? tone(gain) : "text-faint"}`}>{open ? signedPct(gain) : "—"}</td>
-              <td className="r">
-                <div className={`num font-medium ${tone(pnl)}`}>{sol(pnl, true)}</div>
-                <div className={`num text-[11px] ${tone(pnl)} opacity-70`}>{signedPct(pnlPct)}</div>
-              </td>
-              <td className="num r">
-                <span className="inline-flex gap-0.5" title={`${p.tpHit} take-profit levels hit`}>
-                  {Array.from({ length: Math.max(levels, p.tpHit) }, (_, i) => (
-                    <span key={i} className={`h-3 w-1 rounded-full ${i < p.tpHit ? "bg-up" : "bg-line-strong"}`} />
-                  ))}
+                <div className="text-right">
+                  <div className={`num text-[14px] font-medium ${tone(d.pnl)}`}>
+                    {sol(d.pnl, true)}
+                  </div>
+                  <div
+                    className={`num text-[11.5px] ${tone(d.pnl)} opacity-70`}
+                  >
+                    {signedPct(d.pnlPct)}
+                  </div>
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 pl-8 text-[12px] text-faint">
+                <span>
+                  Size <span className="num text-mute">{sol(p.sizeSol)}</span>
                 </span>
-              </td>
-              <td>
-                {!p.triggerWallets.length && <span className="text-faint">—</span>}
-                {p.triggerWallets.slice(0, 3).map((w) => (
-                  <Addr key={w} a={w} />
-                ))}
-                {p.triggerWallets.length > 3 && <span className="ml-1 text-[12px] text-faint">+{p.triggerWallets.length - 3}</span>}
-              </td>
-              <td className="text-faint">{ago(p.openedAt)}</td>
-              <td>
-                {open ? (
+                {d.open && (
+                  <span>
+                    Move{" "}
+                    <span className={`num ${tone(d.gain)}`}>
+                      {signedPct(d.gain)}
+                    </span>
+                  </span>
+                )}
+                <span className="inline-flex items-center gap-1.5">
+                  TP <TpPips hit={p.tpHit} levels={d.levels} />
+                </span>
+                <span>{ago(p.openedAt)}</span>
+              </div>
+              <div className="flex items-center justify-between gap-3 pl-8">
+                {d.open ? (
                   <Badge kind="up" dot>
                     Open
                   </Badge>
                 ) : (
-                  <span className="text-[12.5px] text-mute">{p.exitReason}</span>
+                  <span className="min-w-0 truncate text-[12px] text-mute">
+                    {p.exitReason}
+                  </span>
                 )}
-              </td>
-              <td className="r">
-                {open && (
-                  <Button action="close" extra={{ positionId: p.id }} danger small confirmText={`Close ${p.symbol ?? "this position"} now?`}>
-                    Close
-                  </Button>
-                )}
-              </td>
-            </tr>
+                {d.open && <CloseButton p={p} />}
+              </div>
+            </li>
           );
         })}
-      </tbody>
-    </table>
+      </ul>
+
+      {/* Tablet and up: table */}
+      <table className="hidden md:table">
+        <thead>
+          <tr>
+            <th>Coin</th>
+            <th>Strategy</th>
+            <th className="r">Size</th>
+            <th className="r">Price move</th>
+            <th className="r">PnL</th>
+            <th className="r">TP hit</th>
+            <th>Triggered by</th>
+            <th>Opened</th>
+            <th>Status</th>
+            <th />
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((p) => {
+            const d = derive(p);
+            return (
+              <tr key={p.id}>
+                <td>
+                  <Coin mint={p.mint} symbol={p.symbol} />
+                </td>
+                <td>
+                  <StrategyTag p={p} />
+                </td>
+                <td className="num r text-mute">{sol(p.sizeSol)}</td>
+                <td className={`num r ${d.open ? tone(d.gain) : "text-faint"}`}>
+                  {d.open ? signedPct(d.gain) : "—"}
+                </td>
+                <td className="r">
+                  <div className={`num font-medium ${tone(d.pnl)}`}>
+                    {sol(d.pnl, true)}
+                  </div>
+                  <div className={`num text-[11px] ${tone(d.pnl)} opacity-70`}>
+                    {signedPct(d.pnlPct)}
+                  </div>
+                </td>
+                <td className="num r">
+                  <TpPips hit={p.tpHit} levels={d.levels} />
+                </td>
+                <td>
+                  {!p.triggerWallets.length && (
+                    <span className="text-faint">—</span>
+                  )}
+                  {p.triggerWallets.slice(0, 3).map((w) => (
+                    <Addr key={w} a={w} />
+                  ))}
+                  {p.triggerWallets.length > 3 && (
+                    <span className="ml-1 text-[12px] text-faint">
+                      +{p.triggerWallets.length - 3}
+                    </span>
+                  )}
+                </td>
+                <td className="text-faint">{ago(p.openedAt)}</td>
+                <td>
+                  {d.open ? (
+                    <Badge kind="up" dot>
+                      Open
+                    </Badge>
+                  ) : (
+                    <span className="text-[12.5px] text-mute">
+                      {p.exitReason}
+                    </span>
+                  )}
+                </td>
+                <td className="r">{d.open && <CloseButton p={p} />}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </>
   );
 }

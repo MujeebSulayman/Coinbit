@@ -97,6 +97,15 @@
     background: color-mix(in srgb, var(--color-down) 16%, transparent);
     border-color: color-mix(in srgb, var(--color-down) 50%, transparent);
   }
+  .btn-danger-solid {
+    color: #fff;
+    background: #dc2626;
+    border-color: #dc2626;
+  }
+  .btn-danger-solid:hover:not(:disabled) {
+    background: #ef4444;
+    border-color: #ef4444;
+  }
   .btn-ghost {
     background: transparent;
     border-color: transparent;
@@ -172,4 +181,40 @@
 }
 .live-dot {
   animation: pulse-dot 2s ease-in-out infinite;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes sheet-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+  }
+}
+@keyframes drawer-in {
+  from {
+    transform: translateX(-100%);
+  }
+}
+.fade-in {
+  animation: fade-in 0.15s ease-out;
+}
+.sheet-in,
+.toast-in {
+  animation: sheet-in 0.18s cubic-bezier(0.2, 0.9, 0.3, 1);
+}
+.drawer-in {
+  animation: drawer-in 0.22s cubic-bezier(0.2, 0.9, 0.3, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .fade-in,
+  .sheet-in,
+  .toast-in,
+  .drawer-in,
+  .live-dot {
+    animation: none;
+  }
 }
