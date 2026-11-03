@@ -21,16 +21,9 @@ services:
         sync: false
       - key: SOLANA_WSS_URL
         sync: false
-      - key: SOLANA_RPC_FALLBACK_URLS
-        sync: false
-      - key: TRADER_PRIVATE_KEY # only needed for live mode; leave empty for paper
-        sync: false
-      - key: PUMPPORTAL_API_KEY
-        sync: false
-      - key: TELEGRAM_BOT_TOKEN
-        sync: false
-      - key: TELEGRAM_CHAT_ID
-        sync: false
+      # Optional, add later in the worker's Environment tab on Render when you have them:
+      #   TRADER_PRIVATE_KEY (live trading), PUMPPORTAL_API_KEY, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID,
+      #   SOLANA_RPC_FALLBACK_URLS. Saving env vars on Render restarts the worker automatically.
       # Defaults are safe; change here or in the Render dashboard. Anything from .env.example can be added.
       - key: TRADING_MODE
         value: paper
