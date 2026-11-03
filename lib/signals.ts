@@ -190,6 +190,7 @@ export async function evaluate(mint: string, trigger: { wallet: string; kind: "B
       snipePct: snipePct ?? undefined,
       curvePct: curvePct ?? undefined,
       impactPct: impact ?? undefined,
+      priceSol: q?.priceSol,
       decision: skip ? "SKIPPED" : "TAKEN",
       skipReason: skip,
     },

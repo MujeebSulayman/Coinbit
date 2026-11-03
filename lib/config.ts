@@ -76,11 +76,13 @@ export const config = {
   migrationMode: (["off", "paper", "live"].includes(env.MIGRATION_MODE ?? "") ? env.MIGRATION_MODE : "paper") as StrategyMode,
   migrationSizeSol: num(env.MIGRATION_SIZE_SOL, 0.05),
   migrationMaxOpen: num(env.MIGRATION_MAX_OPEN, 3),
-  migrationDelaySec: num(env.MIGRATION_DELAY_SEC, 60),
+  migrationDelaySec: num(env.MIGRATION_DELAY_SEC, 420), // decide after the BOOST window + 2 min of organic trading
+  migrationBoostSec: num(env.MIGRATION_BOOST_SEC, 300), // pump.fun buyback window after migration
   migrationMinPoolSol: num(env.MIGRATION_MIN_POOL_SOL, 30),
-  migrationMaxDropPct: num(env.MIGRATION_MAX_DROP_PCT, 20),
-  migrationMaxPumpPct: num(env.MIGRATION_MAX_PUMP_PCT, 100),
-  migrationMinBuyRatio: num(env.MIGRATION_MIN_BUY_RATIO, 1.2),
+  migrationMaxDropPct: num(env.MIGRATION_MAX_DROP_PCT, 10), // vs the fixed graduation price
+  migrationMaxPumpPct: num(env.MIGRATION_MAX_PUMP_PCT, 100), // vs the fixed graduation price
+  migrationMinBuyRatio: num(env.MIGRATION_MIN_BUY_RATIO, 1.2), // buys ÷ sells after the BOOST window
+  migrationMinTraders: num(env.MIGRATION_MIN_TRADERS, 15), // distinct traders after the BOOST window
   migrationMinSmartWallets: num(env.MIGRATION_MIN_SMART_WALLETS, 0),
   migrationMinFillMin: num(env.MIGRATION_MIN_FILL_MIN, 10), // launch → graduation faster than this = manufactured
   migrationTpLevels: parseTpLevels(env.MIGRATION_TAKE_PROFIT_LEVELS ?? "50:50,100:30,200:20"),

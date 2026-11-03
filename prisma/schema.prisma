@@ -97,6 +97,11 @@ model Signal {
   snipePct    Float?   // % of supply bought by others in the launch slot
   curvePct    Float?   // bonding curve progress
   impactPct   Float?   // estimated price impact of our buy
+  // Shadow tracking: what this coin did after the decision, taken or skipped (filled in by the worker)
+  priceSol    Float?   // price at decision time
+  peakRet     Float?   // best return (%) seen within 60 minutes
+  ret15       Float?   // return (%) after 15 minutes
+  ret60       Float?   // return (%) after 60 minutes
   decision    String   // TAKEN | SKIPPED
   skipReason  String?
   positionId  Int?

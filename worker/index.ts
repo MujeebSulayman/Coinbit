@@ -13,6 +13,7 @@ import { sweepEmptyTokenAccounts } from "../lib/executor";
 import { startMigrationStrategy } from "../lib/migration";
 import { allModes } from "../lib/modes";
 import { liveFeedCount } from "../lib/pricefeed";
+import { trackSignals } from "../lib/shadow";
 import { managePositions } from "../lib/positions";
 import { notify } from "../lib/telegram";
 import { listenerHealth, syncSubscriptions, watchingCount } from "./listener";
@@ -70,6 +71,7 @@ async function main() {
   });
   sweepEmptyTokenAccounts().catch((e) => log("trade", `rent sweep failed: ${(e as Error).message}`));
   every(10_000, "positions", managePositions);
+  every(60_000, "shadow", trackSignals); // what every signal did afterwards, taken or skipped
   every(30_000, "heartbeat", async () => {
     await setKv("worker:heartbeat", JSON.stringify({
         at: new Date().toISOString(),

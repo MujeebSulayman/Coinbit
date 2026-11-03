@@ -4,21 +4,30 @@
  *
  * Most graduates collapse (one 60-day study: 91% fell to ≤20% of their migration price), so the
  * edge has to come from filtering. Every graduation is recorded as a Signal (taken or skipped,
- * with the reason), which doubles as the dataset for tuning these rules.
+ * with the reason), and shadow-tracked afterwards, which doubles as the dataset for tuning.
  *
- * Flow: PumpPortal migrate event → +5s reference price → wait MIGRATION_DELAY_SEC → checks → buy.
+ * Two pump.fun mechanics shape the rules:
+ *  - Every standard coin graduates at the same price: 85 SOL / 206.9M tokens move into the pool.
+ *    That's the reference; the graduation price also acts as resistance (curve buyers exit at breakeven).
+ *  - BOOST: for ~5 minutes after migration pump.fun itself buys the coin back and burns it. Buy counts
+ *    and price action inside that window are protocol-driven, so we judge only what happens after it.
+ *
+ * Flow: PumpPortal migrate event → wait MIGRATION_DELAY_SEC (past the BOOST window) → checks → buy.
  */
 import { config } from "./config";
 import { db, log } from "./db";
-import { jupBuyQuote, pumpSwapPair, solUsd } from "./market";
+import { jupBuyQuote, pumpSwapPair, quotes, solUsd } from "./market";
 import { strategyMode } from "./modes";
 import { openPosition, riskBlock } from "./positions";
 import { type PortalTrade, startPortal } from "./pumpportal";
 import { bundledReason, devHoldPct, holderStats, mintRisk, tokenAge } from "./signals";
-import { conn, getBondingCurves, poolSolVault, PUMP_TOTAL_SUPPLY, sleep, withRetry } from "./solana";
+import { PublicKey } from "@solana/web3.js";
+import { conn, feePayer, getBondingCurves, getParsedTxs, poolSolVault, PUMP_TOTAL_SUPPLY, sleep, tokenDeltas, withRetry, WSOL } from "./solana";
 import { notify, short } from "./telegram";
 
 const PUMP_AMM = "pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA";
+/** SOL per token at graduation for a standard coin (85 SOL and 206.9M tokens seed the pool). */
+export const GRADUATION_PRICE_SOL = 85 / 206_900_000;
 
 /** Fallback when DexScreener hasn't indexed the pair yet: the pump-amm pool account in the migrate tx. */
 async function poolFromMigrateTx(sig: string): Promise<string | null> {
@@ -33,6 +42,26 @@ async function poolFromMigrateTx(sig: string): Promise<string | null> {
 async function poolSol(pool: string): Promise<number | null> {
   const r = await conn().getTokenAccountBalance(poolSolVault(pool), "confirmed").catch(() => null);
   return r?.value.uiAmount ?? null;
+}
+
+/** Real (non-BOOST) order flow on the pool since `sinceSec`: buys/sells by the pool's SOL change, and
+ *  distinct traders (the strongest early survival signal in the research). */
+async function organicFlow(pool: string, sinceSec: number) {
+  const poolKey = new PublicKey(pool);
+  const sigs = await withRetry(() => conn().getSignaturesForAddress(poolKey, { limit: 300 })).catch(() => []);
+  const recent = sigs.filter((x) => !x.err && (x.blockTime ?? 0) >= sinceSec).slice(0, 150);
+  const txs = (await getParsedTxs(recent.map((x) => x.signature))).filter((t): t is NonNullable<typeof t> => !!t);
+  let buys = 0;
+  let sells = 0;
+  const traders = new Set<string>();
+  for (const tx of txs) {
+    const d = tokenDeltas(tx).find((x) => x.owner === pool && x.mint === WSOL);
+    if (!d) continue;
+    if (d.delta > 0) buys++;
+    else sells++;
+    traders.add(feePayer(tx));
+  }
+  return { buys, sells, traders: traders.size, truncated: recent.length === 150 };
 }
 
 /** Watched (vetted) wallets currently holding the coin, from the listener's event log. */
@@ -56,18 +85,16 @@ async function handleMigration(m: PortalTrade) {
   const mint = m.mint;
   const size = config.migrationSizeSol;
   const t0 = Date.now();
+  const migratedSec = Math.floor(t0 / 1000);
 
-  await sleep(5000);
-  const ref = await jupBuyQuote(mint, size); // price right after migration
-  await sleep(Math.max(0, config.migrationDelaySec * 1000 - (Date.now() - t0)));
-
+  await sleep(config.migrationDelaySec * 1000);
   const mode = await strategyMode("migration"); // may have been toggled while waiting
   if (mode === "off") return;
 
   const [now, pair] = await Promise.all([jupBuyQuote(mint, size), pumpSwapPair(mint)]);
   const pool = pair?.pairAddress ?? (await poolFromMigrateTx(m.signature));
   const curve = (await getBondingCurves([mint]).catch(() => new Map())).get(mint);
-  const [sol, smart, risk, holders, devPct, solPrice, age] = await Promise.all([
+  const [sol, smart, risk, holders, devPct, solPrice, age, spot] = await Promise.all([
     pool ? poolSol(pool) : Promise.resolve(null),
     smartHolders(mint),
     mintRisk(mint),
@@ -75,15 +102,15 @@ async function handleMigration(m: PortalTrade) {
     devHoldPct(mint, curve?.creator),
     solUsd(),
     tokenAge(mint),
+    quotes([mint]).then((q) => q.get(mint)?.priceSol ?? null).catch(() => null),
   ]);
   const top10 = holders?.top10Pct ?? null;
   // Age from the curve's history; null means 1000+ curve txs, i.e. a long organic run before graduating.
   const ageMin = age.ageMin;
   const fillMin = ageMin !== null ? ageMin - (Date.now() - t0) / 60_000 : null; // launch → graduation
 
-  const changePct = ref && now ? (now.priceSol / ref.priceSol - 1) * 100 : null;
-  const flow = pair?.txns?.m5;
-  const ratio = flow ? flow.buys / Math.max(1, flow.sells) : null;
+  // Versus the fixed graduation price (Jupiter's quote includes fees/impact, so this is slightly conservative).
+  const vsGradPct = now ? (now.priceSol / GRADUATION_PRICE_SOL - 1) * 100 : null;
   const symbol = pair?.baseToken.symbol ?? null;
   const mcapUsd = now ? now.priceSol * PUMP_TOTAL_SUPPLY * solPrice : (pair?.marketCap ?? null);
 
@@ -91,9 +118,8 @@ async function handleMigration(m: PortalTrade) {
   if (!now) skip = "no swap route";
   else if (sol === null) skip = "pool not found";
   else if (sol < config.migrationMinPoolSol) skip = `pool only ${sol.toFixed(1)} SOL`;
-  else if (changePct !== null && changePct < -config.migrationMaxDropPct) skip = `dumped ${changePct.toFixed(0)}% since migration`;
-  else if (changePct !== null && changePct > config.migrationMaxPumpPct) skip = `already up ${changePct.toFixed(0)}%`;
-  else if (ratio !== null && ratio < config.migrationMinBuyRatio) skip = `weak buying (${flow!.buys} buys / ${flow!.sells} sells)`;
+  else if (vsGradPct! < -config.migrationMaxDropPct) skip = `${vsGradPct!.toFixed(0)}% vs graduation price after BOOST`;
+  else if (vsGradPct! > config.migrationMaxPumpPct) skip = `already +${vsGradPct!.toFixed(0)}% vs graduation price`;
   else if (fillMin !== null && fillMin < config.migrationMinFillMin)
     skip = `graduated ${Math.max(0, fillMin).toFixed(0)}m after launch (manufactured)`;
   else if (holders && holders.identical >= 4) skip = bundledReason(holders);
@@ -101,13 +127,24 @@ async function handleMigration(m: PortalTrade) {
   else if (top10 !== null && top10 > config.maxTop10HolderPct) skip = `top10 hold ${top10.toFixed(0)}%`;
   else if (devPct !== null && devPct > config.maxDevHoldPct) skip = `dev holds ${devPct.toFixed(0)}%`;
   else if (smart.length < config.migrationMinSmartWallets) skip = `${smart.length} smart wallets holding`;
+
+  // Order flow after the BOOST window: only computed for coins that passed everything else (it costs RPC).
+  let flow: Awaited<ReturnType<typeof organicFlow>> | null = null;
+  if (!skip && pool) {
+    flow = await organicFlow(pool, migratedSec + config.migrationBoostSec).catch(() => null);
+    if (flow) {
+      const ratio = flow.buys / Math.max(1, flow.sells);
+      if (flow.traders < config.migrationMinTraders) skip = `only ${flow.traders} traders after BOOST`;
+      else if (ratio < config.migrationMinBuyRatio) skip = `weak buying after BOOST (${flow.buys} buys / ${flow.sells} sells)`;
+    }
+  }
   if (!skip) skip = await riskBlock(mint, "migration");
 
   const parts = [
     fillMin !== null ? `graduated ${Math.max(0, fillMin).toFixed(0)}m after launch` : "graduated (long run)",
     sol !== null ? `pool ${sol.toFixed(0)} SOL` : null,
-    changePct !== null ? `${changePct >= 0 ? "+" : ""}${changePct.toFixed(0)}% since` : null,
-    flow ? `${flow.buys}/${flow.sells} buys/sells 5m` : null,
+    vsGradPct !== null ? `${vsGradPct >= 0 ? "+" : ""}${vsGradPct.toFixed(0)}% vs grad price` : null,
+    flow ? `${flow.buys}/${flow.sells} buys/sells, ${flow.traders} traders after BOOST` : null,
     smart.length ? `${smart.length} smart holding` : null,
   ].filter(Boolean);
 
@@ -125,6 +162,7 @@ async function handleMigration(m: PortalTrade) {
       devHoldPct: devPct ?? undefined,
       curvePct: 100,
       impactPct: now?.impactPct,
+      priceSol: spot ?? undefined,
       decision: skip ? "SKIPPED" : "TAKEN",
       skipReason: skip,
     },

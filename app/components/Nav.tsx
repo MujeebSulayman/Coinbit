@@ -7,6 +7,7 @@ const nav = [
   ["/wallets", "Wallets"],
   ["/signals", "Signals"],
   ["/positions", "Positions"],
+  ["/performance", "Performance"],
 ] as const;
 
 export default function Nav() {
