@@ -70,12 +70,29 @@ export async function openPosition(opts: {
   return p;
 }
 
-async function sellPart(p: Position, tokens: number, priceSol: number, reason: string, close: boolean) {
+const selling = new Set<number>(); // positions with a sell in flight
+
+/** Returns the updated position, or null if nothing was sold (already selling or already closed). */
+async function sellPart(stale: Position, tokens: number, priceSol: number, reason: string, close: boolean) {
+  // Exits can race (stop-loss tick vs. mirror exit vs. manual close): one sell per position at a time.
+  if (selling.has(stale.id)) return null;
+  selling.add(stale.id);
+  try {
+    const p = await db.position.findUnique({ where: { id: stale.id } });
+    if (!p || p.status !== "OPEN") return null;
+    return await doSell(p, tokens, priceSol, reason, close);
+  } finally {
+    selling.delete(stale.id);
+  }
+}
+
+async function doSell(p: Position, tokens: number, priceSol: number, reason: string, close: boolean) {
   tokens = Math.min(tokens, p.remainingTokens);
-  const fill = await sell(p.mint, tokens, priceSol);
-  const remaining = close ? 0 : p.remainingTokens - tokens;
+  const fill = await sell(p.mint, tokens, priceSol, close);
+  if (fill.empty) reason = `${reason} (wallet held no tokens)`;
+  const remaining = close || fill.empty ? 0 : p.remainingTokens - fill.tokens;
   const realized = p.realizedSol + fill.sol;
-  const done = close || remaining <= p.tokenAmount * 0.01;
+  const done = close || !!fill.empty || remaining <= p.tokenAmount * 0.01;
   const updated = await db.position.update({
     where: { id: p.id },
     data: {
@@ -151,7 +168,7 @@ export async function managePositions() {
           `take-profit +${level.gainPct}%`,
           isLast,
         );
-        if (updated.status === "OPEN") {
+        if (updated?.status === "OPEN") {
           await db.position.update({ where: { id: p.id }, data: { tpHit: { increment: 1 } } });
         }
       }
