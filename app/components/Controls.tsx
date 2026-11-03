@@ -19,7 +19,7 @@ const writeToken = (t: string | null) => {
   } catch {}
 };
 
-class Cancelled extends Error {}
+export class Cancelled extends Error {}
 
 /** Sends a dashboard action, asking for the admin token in a dialog when needed (and again if it's wrong). */
 export function useControl() {

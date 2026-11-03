@@ -14,6 +14,7 @@ import { startMigrationStrategy } from "../lib/migration";
 import { allModes } from "../lib/modes";
 import { liveFeedCount } from "../lib/pricefeed";
 import { pruneOldData } from "../lib/retention";
+import { applyOverrides } from "../lib/settings";
 import { trackSignals } from "../lib/shadow";
 import { managePositions } from "../lib/positions";
 import { notify } from "../lib/telegram";
@@ -51,6 +52,10 @@ async function main() {
     console.error("Set HELIUS_API_KEY (or SOLANA_RPC_URL + SOLANA_WSS_URL) in .env");
     process.exit(1);
   }
+  // Dashboard settings: applied before anything runs, then re-checked every 15s (no restart needed).
+  await applyOverrides().catch((e) => console.error("settings", e));
+  setInterval(() => applyOverrides().catch(() => {}), 15_000);
+
   const modes = await allModes();
   const summary = `copy trading ${modes.copy.toUpperCase()}, migration ${modes.migration.toUpperCase()}`;
   await log("worker", `starting: ${summary}`);

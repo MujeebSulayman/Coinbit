@@ -6,6 +6,7 @@ import {
   LayoutDashboard,
   Menu,
   Radar,
+  SlidersHorizontal,
   Wallet,
   X,
 } from "lucide-react";
@@ -19,6 +20,7 @@ const nav = [
   ["/signals", "Signals", Radar],
   ["/wallets", "Wallets", Wallet],
   ["/performance", "Performance", Gauge],
+  ["/settings", "Settings", SlidersHorizontal],
 ] as const;
 
 type Status = { online: boolean; paused: boolean; at: string | null };

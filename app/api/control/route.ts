@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { config } from "@/lib/config";
 import { db, setKv } from "@/lib/db";
 import { setStrategyMode, STRATEGIES, type Strategy } from "@/lib/modes";
+import { getOverrides, parseSetting, saveOverrides } from "@/lib/settings";
 import type { StrategyMode } from "@/lib/config";
 
 export const dynamic = "force-dynamic";
@@ -10,6 +11,7 @@ export const dynamic = "force-dynamic";
  * Dashboard actions. The worker picks these up from the Kv table:
  *  pause | resume | discover | close (positionId) | exclude (address) | unexclude (address)
  *  setMode (strategy: copy|migration, mode: off|paper|live)
+ *  setSettings (values: { key: value }) | resetSetting (key) | resetAllSettings
  */
 export async function POST(req: Request) {
   if (!config.adminToken || req.headers.get("x-admin-token") !== config.adminToken) {
@@ -21,6 +23,8 @@ export async function POST(req: Request) {
     address?: string;
     strategy?: string;
     mode?: string;
+    values?: Record<string, unknown>;
+    key?: string;
   };
   switch (body.action) {
     case "pause":
@@ -54,6 +58,27 @@ export async function POST(req: Request) {
       }
       break;
     }
+    case "setSettings": {
+      const o = await getOverrides();
+      const errors: string[] = [];
+      for (const [k, raw] of Object.entries(body.values ?? {})) {
+        const r = parseSetting(k, raw);
+        if ("error" in r) errors.push(r.error);
+        else o[k] = r.value;
+      }
+      if (errors.length) return new NextResponse(errors.join("; "), { status: 400 });
+      await saveOverrides(o);
+      break;
+    }
+    case "resetSetting": {
+      const o = await getOverrides();
+      if (body.key) delete o[body.key];
+      await saveOverrides(o);
+      break;
+    }
+    case "resetAllSettings":
+      await saveOverrides({});
+      break;
     default:
       return new NextResponse("unknown action", { status: 400 });
   }
