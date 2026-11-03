@@ -65,7 +65,7 @@ async function main() {
   });
   every(120_000, "listener", syncSubscriptions);
   // Vet more candidates' full trade history between discovery runs, so the watchlist keeps growing.
-  every(10 * 60_000, "vetting", async () => {
+  every(config.vetIntervalMin * 60_000, "vetting", async () => {
     const r = await vetMore();
     if (r?.vetted) await syncSubscriptions();
   });

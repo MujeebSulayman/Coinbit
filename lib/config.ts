@@ -74,7 +74,8 @@ export const config = {
 
   // Full-history vetting: a wallet must be profitable across ALL its recent trades, not just early on winners.
   histTxSample: num(env.HIST_TX_SAMPLE, 120),
-  histPerRun: num(env.HIST_WALLETS_PER_RUN, 15),
+  histPerRun: num(env.HIST_WALLETS_PER_RUN, 30),
+  vetIntervalMin: num(env.VET_INTERVAL_MIN, 5), // background vetting cadence between discovery runs
   histMinTokens: num(env.HIST_MIN_TOKENS, 8),
   histMinWinRate: num(env.HIST_MIN_WIN_RATE, 0.35),
   histMinPnlSol: num(env.HIST_MIN_PNL_SOL, 0),
