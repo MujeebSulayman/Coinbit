@@ -123,7 +123,7 @@ export async function getParsedTxs(signatures: string[]): Promise<(ParsedTransac
   for (let i = 0; i < signatures.length; i += 25) {
     const chunk = signatures.slice(i, i + 25);
     const res = await withRetry(() =>
-      conn().getParsedTransactions(chunk, { maxSupportedTransactionVersion: 0, commitment: "confirmed" }),
+      conn().getParsedTransactions(chunk, { maxSupportedTransactionVersion: 1, commitment: "confirmed" }),
     );
     out.push(...res);
   }

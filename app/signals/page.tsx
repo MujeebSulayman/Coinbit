@@ -1,7 +1,7 @@
 import { db } from "@/lib/db";
 import { ago, usd } from "@/lib/fmt";
 import AutoRefresh from "../components/AutoRefresh";
-import { Addr, Badge, Coin, Empty, Panel } from "../components/ui";
+import { Addr, Badge, Coin, Empty, PageHeader, Panel } from "../components/ui";
 
 export const dynamic = "force-dynamic";
 
@@ -10,42 +10,39 @@ export default async function Signals() {
   return (
     <>
       <AutoRefresh />
-      <div>
-        <h1 className="text-[26px] font-semibold tracking-tight">Signals</h1>
-        <p className="mt-1 text-mute">Each time smart wallets move on a fresh coin, and why it was taken or skipped.</p>
-      </div>
-      <Panel title={`Signals (${signals.length})`}>
+      <PageHeader title="Signals" description="Each time smart wallets buy a fresh coin, and whether the bot took or skipped it." />
+      <Panel title={`Recent signals (${signals.length})`}>
         {signals.length ? (
           <table>
             <thead>
               <tr>
                 <th>Time</th>
                 <th>Coin</th>
-                <th>Why</th>
+                <th>Reason</th>
                 <th>Wallets</th>
-                <th>Mcap</th>
-                <th>Age</th>
-                <th>Top 10</th>
+                <th className="r">Mcap</th>
+                <th className="r">Age</th>
+                <th className="r">Top 10 holders</th>
                 <th>Decision</th>
               </tr>
             </thead>
             <tbody>
               {signals.map((g) => (
                 <tr key={g.id}>
-                  <td className="text-mute">{ago(g.createdAt)}</td>
+                  <td className="text-faint">{ago(g.createdAt)}</td>
                   <td>
                     <Coin mint={g.mint} symbol={g.symbol} />
                   </td>
                   <td className="text-mute">{g.reason}</td>
-                  <td className="space-x-1.5">
+                  <td className="space-x-2">
                     {g.wallets.slice(0, 4).map((w) => (
                       <Addr key={w} a={w} />
                     ))}
                   </td>
-                  <td className="num">{usd(g.mcapUsd)}</td>
-                  <td className="num">{g.ageMin != null ? `${Math.round(g.ageMin)}m` : "—"}</td>
-                  <td className="num">{g.top10Pct != null ? `${g.top10Pct.toFixed(0)}%` : "—"}</td>
-                  <td>{g.decision === "TAKEN" ? <Badge kind="up">taken</Badge> : <Badge>skip · {g.skipReason}</Badge>}</td>
+                  <td className="num r">{usd(g.mcapUsd)}</td>
+                  <td className="num r">{g.ageMin != null ? `${Math.round(g.ageMin)}m` : "—"}</td>
+                  <td className="num r">{g.top10Pct != null ? `${g.top10Pct.toFixed(0)}%` : "—"}</td>
+                  <td>{g.decision === "TAKEN" ? <Badge kind="up">Taken</Badge> : <Badge>Skipped: {g.skipReason}</Badge>}</td>
                 </tr>
               ))}
             </tbody>

@@ -22,7 +22,7 @@ function remember(sig: string) {
 async function fetchTx(sig: string) {
   for (let i = 0; i < 5; i++) {
     const tx = await conn()
-      .getParsedTransaction(sig, { maxSupportedTransactionVersion: 0, commitment: "confirmed" })
+      .getParsedTransaction(sig, { maxSupportedTransactionVersion: 1, commitment: "confirmed" })
       .catch(() => null);
     if (tx) return tx;
     await sleep(400 * (i + 1));

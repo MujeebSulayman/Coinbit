@@ -10,10 +10,10 @@ export function PositionsTable({ rows }: { rows: Position[] }) {
         <tr>
           <th>Coin</th>
           <th>Mode</th>
-          <th>Size</th>
-          <th>Gain</th>
-          <th>PnL</th>
-          <th>TP hit</th>
+          <th className="r">Size</th>
+          <th className="r">Gain</th>
+          <th className="r">PnL</th>
+          <th className="r">TP hit</th>
           <th>Triggered by</th>
           <th>Opened</th>
           <th>Status</th>
@@ -33,19 +33,19 @@ export function PositionsTable({ rows }: { rows: Position[] }) {
               <td>
                 <Badge kind={p.mode === "LIVE" ? "warn" : "accent"}>{p.mode}</Badge>
               </td>
-              <td className="num">{sol(p.sizeSol)}</td>
-              <td className={`num ${tone(gain)}`}>{p.status === "OPEN" ? `${gain >= 0 ? "+" : ""}${gain.toFixed(0)}%` : "—"}</td>
-              <td className={`num ${tone(pnl)}`}>{sol(pnl, true)}</td>
-              <td className="num">{p.tpHit}/3</td>
-              <td className="space-x-1.5">
+              <td className="num r">{sol(p.sizeSol)}</td>
+              <td className={`num r ${tone(gain)}`}>{p.status === "OPEN" ? `${gain >= 0 ? "+" : ""}${gain.toFixed(0)}%` : "—"}</td>
+              <td className={`num r font-medium ${tone(pnl)}`}>{sol(pnl, true)}</td>
+              <td className="num r">{p.tpHit}/3</td>
+              <td className="space-x-2">
                 {p.triggerWallets.slice(0, 3).map((w) => (
                   <Addr key={w} a={w} />
                 ))}
-                {p.triggerWallets.length > 3 && <span className="text-mute">+{p.triggerWallets.length - 3}</span>}
+                {p.triggerWallets.length > 3 && <span className="text-faint">+{p.triggerWallets.length - 3}</span>}
               </td>
-              <td className="text-mute">{ago(p.openedAt)}</td>
-              <td>{p.status === "OPEN" ? <Badge kind="up"><span className="pulse" /> open</Badge> : <span className="text-mute">{p.exitReason}</span>}</td>
-              <td>
+              <td className="text-faint">{ago(p.openedAt)}</td>
+              <td>{p.status === "OPEN" ? <Badge kind="up">Open</Badge> : <span className="text-mute">{p.exitReason}</span>}</td>
+              <td className="r">
                 {p.status === "OPEN" && (
                   <Button action="close" extra={{ positionId: p.id }} danger small>
                     Close
