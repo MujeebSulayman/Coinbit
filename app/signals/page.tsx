@@ -89,7 +89,7 @@ export default async function Signals({
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
-                        <Coin mint={g.mint} symbol={g.symbol} />
+                        <Coin mint={g.mint} symbol={g.symbol} href={g.positionId ? `/positions/${g.positionId}` : undefined} />
                         <Badge>
                           {g.strategy === "migration" ? "Migration" : "Copy"}
                         </Badge>
@@ -192,7 +192,7 @@ export default async function Signals({
                   <tr key={g.id}>
                     <td>
                       <div className="flex items-center gap-2">
-                        <Coin mint={g.mint} symbol={g.symbol} />
+                        <Coin mint={g.mint} symbol={g.symbol} href={g.positionId ? `/positions/${g.positionId}` : undefined} />
                         <Badge>
                           {g.strategy === "migration" ? "Migration" : "Copy"}
                         </Badge>

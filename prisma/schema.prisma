@@ -149,3 +149,28 @@ model RunLog {
 
   @@index([createdAt])
 }
+
+/// Every buy and (partial) sell of a position, for the trade detail page.
+model Fill {
+  id         Int      @id @default(autoincrement())
+  positionId Int
+  side       String   // BUY | SELL
+  tokens     Float
+  sol        Float
+  priceSol   Float
+  reason     String?
+  signature  String?
+  ts         DateTime @default(now())
+
+  @@index([positionId, ts])
+}
+
+/// Price samples while a position is open (throttled), for the trade detail chart.
+model PricePoint {
+  id         Int      @id @default(autoincrement())
+  positionId Int
+  priceSol   Float
+  ts         DateTime @default(now())
+
+  @@index([positionId, ts])
+}

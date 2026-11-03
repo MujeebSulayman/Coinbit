@@ -2,6 +2,7 @@ import type { Position } from "@/generated/prisma/client";
 import { config } from "@/lib/config";
 import { ago, sol, tone } from "@/lib/fmt";
 import { Button } from "../components/Controls";
+import { CardLink, RowLink } from "../components/RowLink";
 import { Addr, Badge, Coin } from "../components/ui";
 
 const signedPct = (v: number) => `${v >= 0 ? "+" : ""}${Math.round(v) || 0}%`;
@@ -36,7 +37,7 @@ function TpPips({ hit, levels }: { hit: number; levels: number }) {
   );
 }
 
-function CloseButton({ p }: { p: Position }) {
+export function CloseButton({ p }: { p: Position }) {
   const name = p.symbol ?? "this position";
   return (
     <Button
@@ -56,7 +57,7 @@ function CloseButton({ p }: { p: Position }) {
   );
 }
 
-const StrategyTag = ({ p }: { p: Position }) => (
+export const StrategyTag = ({ p }: { p: Position }) => (
   <span className="flex items-center gap-2">
     <span className="text-mute">
       {p.strategy === "migration" ? "Migration" : "Copy"}
@@ -75,10 +76,10 @@ export function PositionsTable({ rows }: { rows: Position[] }) {
         {rows.map((p) => {
           const d = derive(p);
           return (
-            <li key={p.id} className="space-y-2.5 px-4 py-3.5">
+            <CardLink key={p.id} href={`/positions/${p.id}`} className="space-y-2.5 px-4 py-3.5 hover:bg-raised">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0 space-y-1">
-                  <Coin mint={p.mint} symbol={p.symbol} />
+                  <Coin mint={p.mint} symbol={p.symbol} href={`/positions/${p.id}`} />
                   <div className="pl-8 text-[12px]">
                     <StrategyTag p={p} />
                   </div>
@@ -123,7 +124,7 @@ export function PositionsTable({ rows }: { rows: Position[] }) {
                 )}
                 {d.open && <CloseButton p={p} />}
               </div>
-            </li>
+            </CardLink>
           );
         })}
       </ul>
@@ -148,9 +149,9 @@ export function PositionsTable({ rows }: { rows: Position[] }) {
           {rows.map((p) => {
             const d = derive(p);
             return (
-              <tr key={p.id}>
+              <RowLink key={p.id} href={`/positions/${p.id}`}>
                 <td>
-                  <Coin mint={p.mint} symbol={p.symbol} />
+                  <Coin mint={p.mint} symbol={p.symbol} href={`/positions/${p.id}`} />
                 </td>
                 <td>
                   <StrategyTag p={p} />
@@ -196,7 +197,7 @@ export function PositionsTable({ rows }: { rows: Position[] }) {
                   )}
                 </td>
                 <td className="act">{d.open && <CloseButton p={p} />}</td>
-              </tr>
+              </RowLink>
             );
           })}
         </tbody>

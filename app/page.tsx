@@ -313,7 +313,7 @@ export default async function Overview() {
                   className="flex items-center justify-between gap-4 px-4 py-2.5 transition-colors hover:bg-raised"
                 >
                   <div className="min-w-0">
-                    <Coin mint={g.mint} symbol={g.symbol} />
+                    <Coin mint={g.mint} symbol={g.symbol} href={g.positionId ? `/positions/${g.positionId}` : undefined} />
                     <div
                       className="mt-0.5 truncate pl-8 text-[11.5px] text-faint"
                       title={g.reason}

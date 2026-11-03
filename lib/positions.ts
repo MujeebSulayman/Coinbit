@@ -74,6 +74,10 @@ export async function openPosition(opts: {
       entrySig: fill.signature,
     },
   });
+  await db.fill.create({
+    data: { positionId: p.id, side: "BUY", tokens: fill.tokens, sol: fill.sol, priceSol: entry, reason: "entry", signature: fill.signature },
+  });
+  await db.pricePoint.create({ data: { positionId: p.id, priceSol: entry } });
   await log("trade", `BUY ${opts.symbol ?? opts.mint} ${fill.sol} SOL (${strategy}, ${p.mode})`);
   const why = strategy === "migration" ? "Graduated to PumpSwap" : `Wallets: ${opts.triggerWallets.map(short).join(", ")}`;
   await notify(
@@ -114,6 +118,19 @@ async function doSell(p: Position, tokens: number, priceSol: number, reason: str
       ...(done ? { status: "CLOSED", closedAt: new Date(), exitReason: reason } : {}),
     },
   });
+  if (fill.tokens > 0 || fill.sol > 0) {
+    await db.fill.create({
+      data: {
+        positionId: p.id,
+        side: "SELL",
+        tokens: fill.tokens,
+        sol: fill.sol,
+        priceSol: fill.tokens > 0 ? fill.sol / fill.tokens : priceSol,
+        reason,
+        signature: fill.signature,
+      },
+    });
+  }
   const pnl = realized - p.sizeSol;
   await log("trade", `SELL ${p.symbol ?? p.mint} ${fill.sol.toFixed(4)} SOL — ${reason}`);
   await notify(
@@ -141,19 +158,26 @@ export async function closePosition(id: number, reason: string) {
 
 const checking = new Set<number>(); // positions whose exit rules are being evaluated
 const belowStop = new Map<number, number>(); // consecutive price readings below the stop
+const lastSample = new Map<number, number>(); // last price-history sample per position
 
 /** Stop level (as % vs entry): the hard stop-loss until the first take-profit; after it, the higher of
  *  break-even (+buffer) and a trailing stop below the peak, so a winner can't turn into a loser. */
-export function stopLevel(p: { tpHit: number; peakPriceSol: number; entryPriceSol: number }, stopLossPct: number) {
+type StopCfg = Pick<typeof config, "breakevenAfterTp" | "breakevenBufferPct" | "trailAfterTpPct">;
+
+export function stopLevel(
+  p: { tpHit: number; peakPriceSol: number; entryPriceSol: number },
+  stopLossPct: number,
+  cfg: StopCfg = config,
+) {
   let stopPct = -stopLossPct;
   let stopKind = "stop-loss";
   if (p.tpHit >= 1) {
-    if (config.breakevenAfterTp && config.breakevenBufferPct > stopPct) {
-      stopPct = config.breakevenBufferPct;
+    if (cfg.breakevenAfterTp && cfg.breakevenBufferPct > stopPct) {
+      stopPct = cfg.breakevenBufferPct;
       stopKind = "break-even";
     }
-    if (config.trailAfterTpPct > 0) {
-      const trail = ((p.peakPriceSol * (1 - config.trailAfterTpPct / 100)) / p.entryPriceSol - 1) * 100;
+    if (cfg.trailAfterTpPct > 0) {
+      const trail = ((p.peakPriceSol * (1 - cfg.trailAfterTpPct / 100)) / p.entryPriceSol - 1) * 100;
       if (trail > stopPct) {
         stopPct = trail;
         stopKind = "trailing stop";
@@ -181,6 +205,11 @@ async function checkExits(id: number, price: number) {
       where: { id },
       data: { currentPriceSol: price, peakPriceSol: Math.max(p.peakPriceSol, price) },
     });
+    // Price history for the trade page: at most one sample per position every 5s.
+    if (Date.now() - (lastSample.get(id) ?? 0) >= 5000) {
+      lastSample.set(id, Date.now());
+      await db.pricePoint.create({ data: { positionId: id, priceSol: price } });
+    }
     const gainPct = (price / p.entryPriceSol - 1) * 100;
     const heldMin = (Date.now() - p.openedAt.getTime()) / 60_000;
     const rules = exitRules(p.strategy);

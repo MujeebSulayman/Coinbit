@@ -169,14 +169,31 @@ export function Addr({ a, href }: { a: string; href?: string }) {
   );
 }
 
+/** Coin label. With `href` it opens a page in the app (e.g. the trade page); otherwise pump.fun. */
 export function Coin({
   mint,
   symbol,
+  href,
 }: {
   mint: string;
   symbol?: string | null;
+  href?: string;
 }) {
   const label = symbol ?? mint.slice(0, 6);
+  const inner = (
+    <>
+      <span className="grid size-6 shrink-0 place-items-center rounded-full border border-line-strong bg-raised text-[10px] font-semibold uppercase text-mute">
+        {label.replace(/^\$/, "").slice(0, 2)}
+      </span>
+      <span className="font-medium group-hover:text-link">{label}</span>
+    </>
+  );
+  if (href)
+    return (
+      <Link href={href} className="group inline-flex items-center gap-2">
+        {inner}
+      </Link>
+    );
   return (
     <a
       href={`https://pump.fun/coin/${mint}`}
@@ -184,10 +201,7 @@ export function Coin({
       rel="noreferrer"
       className="group inline-flex items-center gap-2"
     >
-      <span className="grid size-6 shrink-0 place-items-center rounded-full border border-line-strong bg-raised text-[10px] font-semibold uppercase text-mute">
-        {label.replace(/^\$/, "").slice(0, 2)}
-      </span>
-      <span className="font-medium group-hover:text-link">{label}</span>
+      {inner}
       <ArrowUpRight
         size={12}
         className="-ml-1 text-faint opacity-0 transition-opacity group-hover:opacity-100"
