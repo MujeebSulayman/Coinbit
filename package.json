@@ -1,0 +1,39 @@
+{
+  "name": "coinbit",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Smart-wallet discovery and copy-trade bot for pump.fun (Solana) with a Next.js dashboard",
+  "scripts": {
+    "dev": "next dev",
+    "build": "prisma generate && next build",
+    "start": "next start",
+    "worker": "tsx --tsconfig tsconfig.json worker/index.ts",
+    "discover": "tsx --tsconfig tsconfig.json worker/discover-once.ts",
+    "db:push": "prisma db push",
+    "db:studio": "prisma studio",
+    "typecheck": "tsc --noEmit",
+    "postinstall": "prisma generate"
+  },
+  "dependencies": {
+    "@prisma/adapter-pg": "^7.10.1",
+    "@prisma/client": "^7.10.1",
+    "@solana/web3.js": "^1.98.0",
+    "bs58": "^6.0.0",
+    "next": "^15.0.0",
+    "pg": "^8.23.1",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "dotenv": "^16.4.0",
+    "tsx": "^4.19.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.0.0",
+    "@types/node": "^22.0.0",
+    "@types/pg": "^8.23.1",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "prisma": "^7.10.1",
+    "tailwindcss": "^4.0.0",
+    "typescript": "^5.6.0"
+  }
+}

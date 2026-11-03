@@ -1,0 +1,132 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+/// A wallet the discovery engine has studied. kind = TRADER (early buyer) or LAUNCHER (coin creator).
+model Wallet {
+  address        String    @id
+  kind           String    @default("TRADER")
+  status         String    @default("CANDIDATE") // CANDIDATE | WATCHING | EXCLUDED
+  excludeReason  String?
+  score          Float     @default(0)
+  winners        Int       @default(0) // winning coins it entered early
+  tokensSeen     Int       @default(0)
+  avgEntryRank   Float     @default(0) // 1 = first buyer
+  avgEntryMin    Float     @default(0) // minutes after launch
+  launches       Int       @default(0)
+  launchWinners  Int       @default(0)
+  botChecked     Boolean   @default(false) // passed the high-frequency-bot check
+  signalHits     Int       @default(0) // signals this wallet contributed to
+  copyPnlSol     Float     @default(0) // PnL of our copies it triggered
+  firstSeen      DateTime  @default(now())
+  lastScored     DateTime  @default(now())
+  lastActivity   DateTime?
+  entries        EarlyEntry[]
+
+  @@index([status, score])
+}
+
+model Token {
+  mint         String    @id
+  symbol       String?
+  name         String?
+  creator      String?
+  launchedAt   DateTime?
+  createSlot   Int?
+  peakMcapUsd  Float     @default(0)
+  mcapUsd      Float     @default(0)
+  isWinner     Boolean   @default(false)
+  studiedAt    DateTime?
+  createdAt    DateTime  @default(now())
+  entries      EarlyEntry[]
+}
+
+model EarlyEntry {
+  id         Int      @id @default(autoincrement())
+  wallet     String
+  mint       String
+  rank       Int
+  minutesIn  Float
+  solAmount  Float
+  slot       Int
+  w          Wallet   @relation(fields: [wallet], references: [address], onDelete: Cascade)
+  t          Token    @relation(fields: [mint], references: [mint], onDelete: Cascade)
+
+  @@unique([wallet, mint])
+}
+
+/// Live buys/sells by watched wallets, seen by the listener.
+model WalletEvent {
+  id          Int      @id @default(autoincrement())
+  wallet      String
+  mint        String
+  side        String   // BUY | SELL | CREATE
+  tokenDelta  Float
+  solDelta    Float
+  signature   String
+  ts          DateTime @default(now())
+
+  @@unique([signature, wallet, mint])
+  @@index([mint, ts])
+}
+
+model Signal {
+  id          Int      @id @default(autoincrement())
+  mint        String
+  symbol      String?
+  reason      String
+  wallets     String[]
+  confluence  Int
+  mcapUsd     Float?
+  ageMin      Float?
+  top10Pct    Float?
+  decision    String   // TAKEN | SKIPPED
+  skipReason  String?
+  positionId  Int?
+  createdAt   DateTime @default(now())
+
+  @@index([createdAt])
+}
+
+model Position {
+  id              Int       @id @default(autoincrement())
+  mint            String
+  symbol          String?
+  mode            String    // PAPER | LIVE
+  status          String    @default("OPEN") // OPEN | CLOSED
+  sizeSol         Float
+  entryPriceSol   Float
+  tokenAmount     Float
+  remainingTokens Float
+  realizedSol     Float     @default(0)
+  currentPriceSol Float
+  peakPriceSol    Float
+  tpHit           Int       @default(0)
+  triggerWallets  String[]
+  entrySig        String?
+  exitSigs        String[]
+  exitReason      String?
+  openedAt        DateTime  @default(now())
+  closedAt        DateTime?
+
+  @@index([status])
+}
+
+model Kv {
+  key   String @id
+  value String
+}
+
+model RunLog {
+  id        Int      @id @default(autoincrement())
+  kind      String
+  message   String
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}
