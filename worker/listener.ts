@@ -174,10 +174,10 @@ function onPortalTrade(m: PortalTrade) {
   );
 }
 
-/** Syncs subscriptions with the current watchlist. */
-export async function syncSubscriptions() {
+/** Syncs subscriptions with the current watchlist. With active = false, unsubscribes everything (paused). */
+export async function syncSubscriptions(active = true) {
   startPortal({ onCreate: onPortalCreate, onTrade: onPortalTrade });
-  const rows = await db.wallet.findMany({ where: { status: "WATCHING" }, select: { address: true } });
+  const rows = active ? await db.wallet.findMany({ where: { status: "WATCHING" }, select: { address: true } }) : [];
   const want = new Set(rows.map((w) => w.address));
   let added = 0;
   let removed = 0;
@@ -197,7 +197,9 @@ export async function syncSubscriptions() {
   watched.clear();
   for (const w of want) watched.add(w);
   setPortalAccounts(want);
-  if (added || removed) {
+  if (!active && removed) {
+    await log("listener", `paused: copy trading is off and no copy positions are open (stopped watching ${removed} wallets)`);
+  } else if (added || removed) {
     const via = portalEnabledForTrades() ? "RPC + PumpPortal trades" : "RPC (+ PumpPortal creates)";
     await log("listener", `watching ${subs.size} wallets via ${via} (+${added} / -${removed})`);
   }

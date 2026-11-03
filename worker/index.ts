@@ -11,7 +11,7 @@ import { db, getKv, log, setKv } from "../lib/db";
 import { runDiscovery, vetMore } from "../lib/discovery";
 import { sweepEmptyTokenAccounts } from "../lib/executor";
 import { startMigrationStrategy } from "../lib/migration";
-import { allModes } from "../lib/modes";
+import { allModes, strategyMode } from "../lib/modes";
 import { liveFeedCount } from "../lib/pricefeed";
 import { pruneOldData } from "../lib/retention";
 import { applyOverrides } from "../lib/settings";
@@ -47,6 +47,18 @@ async function discoveryDue() {
   return !last || Date.now() - new Date(last).getTime() > config.discoveryIntervalMin * 60_000;
 }
 
+/**
+ * Which parts of the wallet pipeline are needed right now. With copy trading off it pauses to save RPC
+ * credits — except the listener keeps running while copy positions are still open (mirror exits), and
+ * everything stays on if the migration strategy is set to require smart wallets.
+ */
+async function walletNeeds() {
+  const copyOn = (await strategyMode("copy")) !== "off";
+  const migrationUsesWallets = config.migrationMinSmartWallets > 0;
+  const openCopy = await db.position.count({ where: { status: "OPEN", strategy: "copy" } });
+  return { discovery: copyOn || migrationUsesWallets, listener: copyOn || migrationUsesWallets || openCopy > 0 };
+}
+
 async function main() {
   if (!config.heliusKey && !process.env.SOLANA_RPC_URL) {
     console.error("Set HELIUS_API_KEY (or SOLANA_RPC_URL + SOLANA_WSS_URL) in .env");
@@ -63,22 +75,24 @@ async function main() {
   startMigrationStrategy();
 
   // Discovery: checked every minute, runs when due or when requested from the dashboard.
+  // The wallet pipeline (discovery, vetting, live wallet listener) only runs when something needs it.
   every(60_000, "discovery", async () => {
-    if (await discoveryDue()) {
+    if ((await walletNeeds()).discovery && (await discoveryDue())) {
       await runDiscovery();
       await syncSubscriptions();
     }
   });
-  every(120_000, "listener", syncSubscriptions);
+  every(120_000, "listener", async () => syncSubscriptions((await walletNeeds()).listener));
   // Vet more candidates' full trade history between discovery runs, so the watchlist keeps growing.
   every(config.vetIntervalMin * 60_000, "vetting", async () => {
+    if (!(await walletNeeds()).discovery) return;
     const r = await vetMore();
     if (r?.vetted) await syncSubscriptions();
   });
   sweepEmptyTokenAccounts().catch((e) => log("trade", `rent sweep failed: ${(e as Error).message}`));
   every(10_000, "positions", managePositions);
-  every(60_000, "shadow", trackSignals);
-  every(6 * 3600_000, "retention", pruneOldData); // logs 14d, raw wallet events 30d, untraded signals 90d // what every signal did afterwards, taken or skipped
+  every(60_000, "shadow", trackSignals); // what every signal did afterwards, taken or skipped
+  every(6 * 3600_000, "retention", pruneOldData); // logs 14d, raw wallet events 30d, untraded signals 90d
   every(30_000, "heartbeat", async () => {
     await setKv("worker:heartbeat", JSON.stringify({
         at: new Date().toISOString(),
