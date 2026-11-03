@@ -118,15 +118,22 @@ export async function oldestSignatures(
   return { sigs: [...prevPage, ...lastPage].reverse(), reachedStart: false };
 }
 
-export async function getParsedTxs(signatures: string[]): Promise<(ParsedTransactionWithMeta | null)[]> {
-  const out: (ParsedTransactionWithMeta | null)[] = [];
-  for (let i = 0; i < signatures.length; i += 25) {
-    const chunk = signatures.slice(i, i + 25);
-    const res = await withRetry(() =>
-      conn().getParsedTransactions(chunk, { maxSupportedTransactionVersion: 1, commitment: "confirmed" }),
-    );
-    out.push(...res);
-  }
+/**
+ * Fetches transactions one by one with limited concurrency. Batched requests fail as a whole
+ * when the RPC rate-limits any part of the batch, so single requests with their own retries are more reliable.
+ */
+export async function getParsedTxs(signatures: string[], concurrency = 4): Promise<(ParsedTransactionWithMeta | null)[]> {
+  const out: (ParsedTransactionWithMeta | null)[] = new Array(signatures.length).fill(null);
+  let next = 0;
+  const run = async () => {
+    while (next < signatures.length) {
+      const i = next++;
+      out[i] = await withRetry(() =>
+        conn().getParsedTransaction(signatures[i], { maxSupportedTransactionVersion: 1, commitment: "confirmed" }),
+      5).catch(() => null);
+    }
+  };
+  await Promise.all(Array.from({ length: concurrency }, run));
   return out;
 }
 
