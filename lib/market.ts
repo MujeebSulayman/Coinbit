@@ -136,6 +136,24 @@ export async function jupSellPrice(mint: string, tokens: number): Promise<number
   return sol > 0 ? sol / tokens : null;
 }
 
+/** Sellability check: quote a buy of `sol`, then a sell of exactly those tokens. A coin you can buy but
+ *  not sell (honeypot), or that loses a lot on the round trip, shows up here. null = couldn't quote a buy. */
+export async function roundTrip(mint: string, sol: number): Promise<{ sellable: boolean; lossPct: number } | null> {
+  const b = await jupBuyQuote(mint, sol);
+  if (!b) return null;
+  let sellPrice = await jupSellPrice(mint, b.tokens);
+  // A missing sell route on a brand-new coin is often just the aggregator catching up: ask twice more.
+  for (let i = 0; !sellPrice && i < 2; i++) {
+    await new Promise((r) => setTimeout(r, 1500));
+    sellPrice = await jupSellPrice(mint, b.tokens);
+  }
+  if (!sellPrice) return { sellable: false, lossPct: 100 };
+  return { sellable: true, lossPct: (1 - (sellPrice * b.tokens) / sol) * 100 };
+}
+
+export const roundTripReason = (rt: { sellable: boolean; lossPct: number } | null) =>
+  !rt ? null : !rt.sellable ? "can't sell (no sell route)" : `round trip loses ${rt.lossPct.toFixed(0)}%`;
+
 /** The coin's PumpSwap pair on DexScreener (pool address, liquidity, 5-minute flow). */
 export async function pumpSwapPair(mint: string): Promise<DexPair | null> {
   const pairs = await getJson<DexPair[]>(`https://api.dexscreener.com/tokens/v1/solana/${mint}`);

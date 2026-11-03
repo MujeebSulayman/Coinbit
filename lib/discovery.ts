@@ -31,7 +31,7 @@ const MAX_TOKENS_PER_RUN = Number(process.env.DISCOVERY_MAX_TOKENS ?? 40);
 const STICKY_EXCLUDES = ["hft", "manual", "bot"];
 
 async function collectWinners(): Promise<WinnerCandidate[]> {
-  const [dex, pump, learned] = await Promise.all([
+  const [dex, pump, learned, graduates] = await Promise.all([
     dexscreenerCandidates().catch(() => [] as string[]),
     pumpfunCandidates().catch(() => [] as WinnerCandidate[]),
     db.walletEvent
@@ -42,11 +42,19 @@ async function collectWinners(): Promise<WinnerCandidate[]> {
         take: 300,
       })
       .then((r) => r.map((x) => x.mint)),
+    // Coins the migration feed saw graduate in the last 3 days: a steady stream of fresh candidates.
+    db.token.findMany({
+      where: { isWinner: false, createdAt: { gte: new Date(Date.now() - 3 * 864e5) } },
+      select: { mint: true, peakMcapUsd: true },
+      take: 1000,
+    }),
   ]);
 
   const byMint = new Map<string, WinnerCandidate>();
   for (const c of pump) byMint.set(c.mint, c);
   for (const m of [...dex, ...learned]) if (!byMint.has(m)) byMint.set(m, { mint: m, mcapUsd: 0 });
+  // Graduates count by their PEAK market cap: many spike and fade, and the early buyers of the spike are who we want.
+  for (const g of graduates) if (!byMint.has(g.mint)) byMint.set(g.mint, { mint: g.mint, mcapUsd: g.peakMcapUsd });
 
   // Refresh market caps for everything.
   const q = await quotes([...byMint.keys()]);
@@ -56,6 +64,14 @@ async function collectWinners(): Promise<WinnerCandidate[]> {
       c.mcapUsd = Math.max(c.mcapUsd, qq.mcapUsd);
       c.symbol ??= qq.symbol;
       c.name ??= qq.name;
+    }
+  }
+
+  // Keep peak market caps of tracked graduates current, so a spike between runs isn't missed.
+  const gradSet = new Set(graduates.map((g) => g.mint));
+  for (const [m, c] of byMint) {
+    if (gradSet.has(m) && c.mcapUsd > 0) {
+      await db.token.updateMany({ where: { mint: m, peakMcapUsd: { lt: c.mcapUsd } }, data: { peakMcapUsd: c.mcapUsd, mcapUsd: c.mcapUsd, symbol: c.symbol } });
     }
   }
 
@@ -251,8 +267,9 @@ export async function refreshWatchlist(vetBudget = config.histPerRun) {
 
 async function doRefreshWatchlist(vetBudget: number) {
   const min = config.minWinnersForWatch;
+  const minProven = Math.min(min, config.minWinnersWithHistory);
   const eligible = await db.wallet.findMany({
-    where: { status: { not: "EXCLUDED" }, OR: [{ winners: { gte: min } }, { launchWinners: { gte: min } }] },
+    where: { status: { not: "EXCLUDED" }, OR: [{ winners: { gte: minProven } }, { launchWinners: { gte: min } }] },
     orderBy: { score: "desc" },
     take: config.watchlistSize * 2,
   });
@@ -308,6 +325,9 @@ async function doRefreshWatchlist(vetBudget: number) {
       }
     }
 
+    // Fewer winners than the usual bar: only watch if the full history actually proves the wallet.
+    const winnersAlone = w.winners >= min || w.launchWinners >= min;
+    if (!winnersAlone && (hist.histTokens ?? 0) < config.histMinTokens) continue;
     const verdict = storedHistoryVerdict(hist);
     if (verdict) {
       await db.wallet.update({ where: { address: w.address }, data: { status: "EXCLUDED", excludeReason: verdict } });

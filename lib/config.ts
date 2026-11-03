@@ -48,7 +48,7 @@ export const config = {
   maxTop10HolderPct: num(env.MAX_TOP10_HOLDER_PCT, 45),
   launcherSoloSignal: bool(env.LAUNCHER_SOLO_SIGNAL, true),
   maxDevHoldPct: num(env.MAX_DEV_HOLD_PCT, 10),
-  maxLaunchSnipePct: num(env.MAX_LAUNCH_SNIPE_PCT, 20),
+  maxLaunchSnipePct: num(env.MAX_LAUNCH_SNIPE_PCT, 15),
   maxCurveProgressPct: num(env.MAX_CURVE_PROGRESS_PCT, 95),
   maxPriceImpactPct: num(env.MAX_PRICE_IMPACT_PCT, 5),
 
@@ -56,12 +56,21 @@ export const config = {
   stopLossPct: num(env.STOP_LOSS_PCT, 35),
   maxHoldMin: num(env.MAX_HOLD_MIN, 240),
   mirrorExits: bool(env.MIRROR_EXITS, true),
+  // After the first take-profit (both strategies): protect the rest of the position.
+  breakevenAfterTp: bool(env.BREAKEVEN_AFTER_TP, true),
+  breakevenBufferPct: num(env.BREAKEVEN_BUFFER_PCT, 2), // sell the rest if it falls back to entry +2% (covers fees)
+  trailAfterTpPct: num(env.TRAIL_AFTER_TP_PCT, 30), // ...or 30% below its peak, whichever is higher. 0 = off
+  stopConfirmTicks: num(env.STOP_CONFIRM_TICKS, 2), // consecutive readings below a stop before selling
+  maxRoundTripLossPct: num(env.MAX_ROUNDTRIP_LOSS_PCT, 10), // sellability: skip if buy→sell would lose more than this
+  maxDevSoldPct: num(env.MAX_DEV_SOLD_PCT, 50), // skip if the creator already sold more than this % of their launch buy
 
   discoveryIntervalMin: num(env.DISCOVERY_INTERVAL_MIN, 360),
   watchlistSize: num(env.WATCHLIST_SIZE, 150),
   earlyBuyerCount: num(env.EARLY_BUYER_COUNT, 60),
   minWinnersForWatch: num(env.MIN_WINNERS_FOR_WATCH, 2),
-  winnerMinPeakMcapUsd: num(env.WINNER_MIN_MCAP_USD, 500_000),
+  winnerMinPeakMcapUsd: num(env.WINNER_MIN_MCAP_USD, 250_000),
+  // Wallets early on fewer winners than minWinnersForWatch can still be watched if their full history proves them.
+  minWinnersWithHistory: num(env.MIN_WINNERS_WITH_HISTORY, 1),
 
   // Full-history vetting: a wallet must be profitable across ALL its recent trades, not just early on winners.
   histTxSample: num(env.HIST_TX_SAMPLE, 120),
@@ -85,7 +94,7 @@ export const config = {
   migrationMinTraders: num(env.MIGRATION_MIN_TRADERS, 15), // distinct traders after the BOOST window
   migrationMinSmartWallets: num(env.MIGRATION_MIN_SMART_WALLETS, 0),
   migrationMinFillMin: num(env.MIGRATION_MIN_FILL_MIN, 10), // launch → graduation faster than this = manufactured
-  migrationTpLevels: parseTpLevels(env.MIGRATION_TAKE_PROFIT_LEVELS ?? "50:50,100:30,200:20"),
+  migrationTpLevels: parseTpLevels(env.MIGRATION_TAKE_PROFIT_LEVELS ?? "30:50,100:25,200:25"),
   migrationStopLossPct: num(env.MIGRATION_STOP_LOSS_PCT, 25),
   migrationMaxHoldMin: num(env.MIGRATION_MAX_HOLD_MIN, 60),
 

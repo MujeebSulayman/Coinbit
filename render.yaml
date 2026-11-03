@@ -4,7 +4,7 @@
 services:
   # The bot: discovery, wallet listener, migration strategy, position management.
   - type: worker
-    name: coinbit-worker
+    name: NRV Worker
     runtime: node
     plan: starter
     region: ohio # same AWS region as the Neon database (us-east-2)
@@ -36,7 +36,7 @@ services:
 
   # The dashboard (Next.js). Reads the same database; never needs the trading key.
   - type: web
-    name: coinbit-dashboard
+    name: NRV Dashboard
     runtime: node
     plan: starter
     region: ohio

@@ -2,21 +2,26 @@
 import { PublicKey, type ConfirmedSignatureInfo, type ParsedAccountData } from "@solana/web3.js";
 import { config } from "./config";
 import { db, log } from "./db";
-import { quotes, solUsd, type Quote } from "./market";
+import { quotes, roundTrip, roundTripReason, solUsd, type Quote } from "./market";
 import { openPosition, riskBlock } from "./positions";
 import { bondingCurvePda, conn, feePayer, getParsedTxs, PUMP_TOTAL_SUPPLY, tokenDeltas, withRetry } from "./solana";
 import { strategyMode } from "./modes";
 import { notify, short } from "./telegram";
 
-/** Age in minutes, plus the curve's full history (oldest first) when it's short enough to fetch in one call. */
-export async function tokenAge(mint: string, pairCreatedAt?: number): Promise<{ ageMin: number | null; sigs: ConfirmedSignatureInfo[] | null }> {
-  const sigs = await withRetry(() => conn().getSignaturesForAddress(bondingCurvePda(mint), { limit: 1000 })).catch(() => []);
-  const full = sigs.length > 0 && sigs.length < 1000 ? [...sigs].reverse() : null;
+/** Age in minutes, plus the curve's full history (oldest first) when it's short enough to fetch in one call.
+ *  unknown = the history lookup failed, so "no age" must not be read as "old" (or as "long run"). */
+export async function tokenAge(
+  mint: string,
+  pairCreatedAt?: number,
+): Promise<{ ageMin: number | null; sigs: ConfirmedSignatureInfo[] | null; unknown: boolean }> {
+  const sigs = await withRetry(() => conn().getSignaturesForAddress(bondingCurvePda(mint), { limit: 1000 }), 5).catch(() => null);
+  const full = sigs && sigs.length > 0 && sigs.length < 1000 ? [...sigs].reverse() : null;
   const t = await db.token.findUnique({ where: { mint }, select: { launchedAt: true } });
-  if (t?.launchedAt) return { ageMin: (Date.now() - t.launchedAt.getTime()) / 60_000, sigs: full };
-  if (full?.[0]?.blockTime) return { ageMin: (Date.now() / 1000 - full[0].blockTime) / 60, sigs: full };
-  if (pairCreatedAt) return { ageMin: (Date.now() - pairCreatedAt) / 60_000, sigs: full };
-  return { ageMin: null, sigs: full }; // lots of history → definitely not brand new
+  if (t?.launchedAt) return { ageMin: (Date.now() - t.launchedAt.getTime()) / 60_000, sigs: full, unknown: false };
+  if (full?.[0]?.blockTime) return { ageMin: (Date.now() / 1000 - full[0].blockTime) / 60, sigs: full, unknown: false };
+  if (pairCreatedAt) return { ageMin: (Date.now() - pairCreatedAt) / 60_000, sigs: full, unknown: false };
+  // 1000+ curve txs → definitely not brand new; no answer at all → we simply don't know.
+  return { ageMin: null, sigs: full, unknown: !sigs || sigs.length === 0 };
 }
 
 /** Mint-level risks: mint/freeze authority still set (deployer can print tokens or freeze our account),
@@ -45,8 +50,9 @@ export async function devHoldPct(mint: string, creator: string | null | undefine
   }
 }
 
-/** % of supply bought by wallets other than the creator in the launch slot (bundles / snipers). */
-async function launchSnipePct(mint: string, sigs: ConfirmedSignatureInfo[] | null): Promise<number | null> {
+/** Launch slot: % of supply bought by wallets other than the creator (bundles / snipers), and the
+ *  creator's own launch buy (to spot an early dev dump). */
+async function launchSlot(mint: string, sigs: ConfirmedSignatureInfo[] | null): Promise<{ snipePct: number; creatorPct: number } | null> {
   if (!sigs?.length) return null;
   const slot = sigs[0].slot;
   const inSlot = sigs.filter((s) => s.slot === slot && !s.err).slice(0, 10).map((s) => s.signature);
@@ -55,12 +61,15 @@ async function launchSnipePct(mint: string, sigs: ConfirmedSignatureInfo[] | nul
   const creator = feePayer(txs[0]);
   const curve = bondingCurvePda(mint).toBase58();
   let bought = 0;
+  let creatorBought = 0;
   for (const tx of txs) {
     for (const d of tokenDeltas(tx)) {
-      if (d.mint === mint && d.delta > 0 && d.owner !== creator && d.owner !== curve) bought += d.delta;
+      if (d.mint !== mint || d.delta <= 0 || d.owner === curve) continue;
+      if (d.owner === creator) creatorBought += d.delta;
+      else bought += d.delta;
     }
   }
-  return (bought / PUMP_TOTAL_SUPPLY) * 100;
+  return { snipePct: (bought / PUMP_TOTAL_SUPPLY) * 100, creatorPct: (creatorBought / PUMP_TOTAL_SUPPLY) * 100 };
 }
 
 /** Estimated price impact of our buy, in %. */
@@ -114,13 +123,17 @@ export const bundledReason = (h: HolderStats) => `bundled: ${h.identical} wallet
 export async function checkToken(mint: string) {
   const q = (await quotes([mint])).get(mint);
   const tok = await db.token.findUnique({ where: { mint }, select: { creator: true } });
-  const [{ ageMin, sigs }, holders, authority, devPct] = await Promise.all([
+  const [{ ageMin, sigs, unknown: ageUnknown }, holders, authority, devPct] = await Promise.all([
     tokenAge(mint, q?.pairCreatedAt),
     holderStats(mint),
     mintRisk(mint),
     devHoldPct(mint, q?.curve?.creator ?? tok?.creator),
   ]);
-  const snipePct = await launchSnipePct(mint, sigs).catch(() => null);
+  const launch = await launchSlot(mint, sigs).catch(() => null);
+  const snipePct = launch?.snipePct ?? null;
+  // Creator sold most of their launch buy already (early dev selling raises the odds the coin dies).
+  const devSoldPct = launch && launch.creatorPct > 1 && devPct !== null ? Math.max(0, (1 - devPct / launch.creatorPct) * 100) : null;
+  const rt = q ? await roundTrip(mint, config.positionSizeSol).catch(() => null) : null;
   const impact = q ? await priceImpactPct(q) : null;
   const curvePct = q?.curve?.progressPct ?? null;
   const symbol = q?.symbol ?? null;
@@ -129,7 +142,8 @@ export async function checkToken(mint: string) {
   let skip: string | null = null;
   if (!q || q.priceSol <= 0) skip = "no price";
   else if (q.mcapUsd > config.maxEntryMcapUsd) skip = `mcap $${Math.round(q.mcapUsd).toLocaleString()} too high`;
-  else if (ageMin === null || ageMin > config.maxTokenAgeMin) skip = `too old (${ageMin === null ? "?" : Math.round(ageMin)}m)`;
+  else if (ageUnknown) skip = "age unknown (history lookup failed)";
+  else if (ageMin === null || ageMin > config.maxTokenAgeMin) skip = `too old (${ageMin === null ? "1000+ txs" : `${Math.round(ageMin)}m`})`;
   else if (authority) skip = authority;
   else if (curvePct !== null && curvePct > config.maxCurveProgressPct) skip = `curve ${curvePct.toFixed(0)}% done (about to migrate)`;
   else if (impact !== null && impact > config.maxPriceImpactPct) skip = `price impact ${impact.toFixed(1)}%`;
@@ -137,6 +151,8 @@ export async function checkToken(mint: string) {
   else if (top10 !== null && top10 > config.maxTop10HolderPct) skip = `top10 hold ${top10.toFixed(0)}%`;
   else if (devPct !== null && devPct > config.maxDevHoldPct) skip = `dev holds ${devPct.toFixed(0)}%`;
   else if (snipePct !== null && snipePct > config.maxLaunchSnipePct) skip = `launch snipers took ${snipePct.toFixed(0)}%`;
+  else if (devSoldPct !== null && devSoldPct > config.maxDevSoldPct) skip = `dev already sold ${devSoldPct.toFixed(0)}% of launch buy`;
+  else if (rt && (!rt.sellable || rt.lossPct > config.maxRoundTripLossPct)) skip = roundTripReason(rt);
   return { q, symbol, ageMin, top10, devPct, snipePct, curvePct, impact, skip };
 }
 

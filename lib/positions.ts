@@ -140,6 +140,28 @@ export async function closePosition(id: number, reason: string) {
 }
 
 const checking = new Set<number>(); // positions whose exit rules are being evaluated
+const belowStop = new Map<number, number>(); // consecutive price readings below the stop
+
+/** Stop level (as % vs entry): the hard stop-loss until the first take-profit; after it, the higher of
+ *  break-even (+buffer) and a trailing stop below the peak, so a winner can't turn into a loser. */
+export function stopLevel(p: { tpHit: number; peakPriceSol: number; entryPriceSol: number }, stopLossPct: number) {
+  let stopPct = -stopLossPct;
+  let stopKind = "stop-loss";
+  if (p.tpHit >= 1) {
+    if (config.breakevenAfterTp && config.breakevenBufferPct > stopPct) {
+      stopPct = config.breakevenBufferPct;
+      stopKind = "break-even";
+    }
+    if (config.trailAfterTpPct > 0) {
+      const trail = ((p.peakPriceSol * (1 - config.trailAfterTpPct / 100)) / p.entryPriceSol - 1) * 100;
+      if (trail > stopPct) {
+        stopPct = trail;
+        stopKind = "trailing stop";
+      }
+    }
+  }
+  return { stopPct, stopKind };
+}
 
 function exitRules(strategy: string) {
   return strategy === "migration"
@@ -163,10 +185,18 @@ async function checkExits(id: number, price: number) {
     const heldMin = (Date.now() - p.openedAt.getTime()) / 60_000;
     const rules = exitRules(p.strategy);
 
-    if (gainPct <= -rules.stopLossPct) {
-      await sellPart(p, p.remainingTokens, price, `stop-loss ${gainPct.toFixed(0)}%`, true);
+    const { stopPct, stopKind } = stopLevel(p, rules.stopLossPct);
+    if (gainPct <= stopPct) {
+      // Require consecutive readings below the stop so a single wick doesn't trigger it.
+      const n = (belowStop.get(id) ?? 0) + 1;
+      belowStop.set(id, n);
+      if (n >= config.stopConfirmTicks) {
+        belowStop.delete(id);
+        await sellPart(p, p.remainingTokens, price, `${stopKind} ${gainPct >= 0 ? "+" : ""}${gainPct.toFixed(0)}%`, true);
+      }
       return;
     }
+    belowStop.delete(id);
     if (heldMin >= rules.maxHoldMin) {
       await sellPart(p, p.remainingTokens, price, `time exit ${Math.round(heldMin)}m`, true);
       return;

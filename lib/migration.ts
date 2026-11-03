@@ -16,7 +16,7 @@
  */
 import { config } from "./config";
 import { db, log } from "./db";
-import { jupBuyQuote, pumpSwapPair, quotes, solUsd } from "./market";
+import { jupBuyQuote, pumpSwapPair, quotes, roundTrip, roundTripReason, solUsd } from "./market";
 import { strategyMode } from "./modes";
 import { openPosition, riskBlock } from "./positions";
 import { type PortalTrade, startPortal } from "./pumpportal";
@@ -120,6 +120,7 @@ async function handleMigration(m: PortalTrade) {
   else if (sol < config.migrationMinPoolSol) skip = `pool only ${sol.toFixed(1)} SOL`;
   else if (vsGradPct! < -config.migrationMaxDropPct) skip = `${vsGradPct!.toFixed(0)}% vs graduation price after BOOST`;
   else if (vsGradPct! > config.migrationMaxPumpPct) skip = `already +${vsGradPct!.toFixed(0)}% vs graduation price`;
+  else if (age.unknown) skip = "age unknown (history lookup failed)";
   else if (fillMin !== null && fillMin < config.migrationMinFillMin)
     skip = `graduated ${Math.max(0, fillMin).toFixed(0)}m after launch (manufactured)`;
   else if (holders && holders.identical >= 4) skip = bundledReason(holders);
@@ -127,6 +128,10 @@ async function handleMigration(m: PortalTrade) {
   else if (top10 !== null && top10 > config.maxTop10HolderPct) skip = `top10 hold ${top10.toFixed(0)}%`;
   else if (devPct !== null && devPct > config.maxDevHoldPct) skip = `dev holds ${devPct.toFixed(0)}%`;
   else if (smart.length < config.migrationMinSmartWallets) skip = `${smart.length} smart wallets holding`;
+  if (!skip) {
+    const rt = await roundTrip(mint, size).catch(() => null);
+    if (rt && (!rt.sellable || rt.lossPct > config.maxRoundTripLossPct)) skip = roundTripReason(rt);
+  }
 
   // Order flow after the BOOST window: only computed for coins that passed everything else (it costs RPC).
   let flow: Awaited<ReturnType<typeof organicFlow>> | null = null;
@@ -192,6 +197,8 @@ export function startMigrationStrategy() {
     onMigrate: (m) => {
       if (seen.has(m.mint)) return;
       seen.add(m.mint);
+      // Every graduate is a potential future winner for discovery to study (see collectWinners).
+      db.token.upsert({ where: { mint: m.mint }, create: { mint: m.mint }, update: {} }).catch(() => {});
       if (seen.size > 5000) seen.delete(seen.values().next().value!);
       handleMigration(m).catch((e) => log("signal", `migration ${m.mint} failed: ${(e as Error).message}`));
     },
