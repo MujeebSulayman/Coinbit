@@ -275,7 +275,8 @@ export async function managePositions() {
   }
 }
 
-/** Called by the listener when a watched wallet sells. Closes if most trigger wallets have exited. */
+/** Called by the listener when a watched wallet sells. Closes only once a strict majority of the
+ *  trigger wallets have sold (2 of 2, 2 of 3, 3 of 4…), so one wallet trimming doesn't shake us out. */
 export async function onTrackedSell(wallet: string, mint: string) {
   if (!config.mirrorExits) return;
   const p = await db.position.findFirst({ where: { mint, status: "OPEN", strategy: "copy" } });
@@ -285,7 +286,7 @@ export async function onTrackedSell(wallet: string, mint: string) {
     distinct: ["wallet"],
     select: { wallet: true },
   });
-  if (sellers.length * 2 >= p.triggerWallets.length) {
+  if (sellers.length * 2 > p.triggerWallets.length) {
     await closePosition(p.id, `mirror exit (${sellers.length}/${p.triggerWallets.length} wallets sold)`);
   }
 }
