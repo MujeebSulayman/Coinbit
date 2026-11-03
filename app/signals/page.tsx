@@ -176,15 +176,15 @@ export default async function Signals({
                   <th>Coin</th>
                   <th>Decision</th>
                   <th>Wallets</th>
-                  <th className="r">Mcap</th>
-                  <th className="r">Age</th>
-                  <th className="r">Top 10</th>
-                  <th className="r">Dev</th>
-                  <th className="r">Snipers</th>
-                  <th className="r">Curve</th>
-                  <th className="r">+15m</th>
-                  <th className="r">+60m</th>
-                  <th className="r">Time</th>
+                  <th>Mcap</th>
+                  <th>Age</th>
+                  <th>Top 10</th>
+                  <th>Dev</th>
+                  <th>Snipers</th>
+                  <th>Curve</th>
+                  <th>+15m</th>
+                  <th>+60m</th>
+                  <th>Time</th>
                 </tr>
               </thead>
               <tbody>
@@ -228,31 +228,31 @@ export default async function Signals({
                         </span>
                       )}
                     </td>
-                    <td className="num r">{usd(g.mcapUsd)}</td>
-                    <td className="num r text-mute">
+                    <td className="num">{usd(g.mcapUsd)}</td>
+                    <td className="num text-mute">
                       {g.ageMin != null ? `${Math.round(g.ageMin)}m` : "—"}
                     </td>
-                    <td className="r">
+                    <td>
                       <Meter
                         pct={g.top10Pct}
                         warnAt={config.maxTop10HolderPct}
                       />
                     </td>
-                    <td className="r">
+                    <td>
                       <Meter pct={g.devHoldPct} warnAt={config.maxDevHoldPct} />
                     </td>
-                    <td className="r">
+                    <td>
                       <Meter
                         pct={g.snipePct}
                         warnAt={config.maxLaunchSnipePct}
                       />
                     </td>
-                    <td className="r">
+                    <td>
                       <Meter pct={g.curvePct} />
                     </td>
-                    <td className="num r">{ret(g.ret15)}</td>
-                    <td className="num r">{ret(g.ret60)}</td>
-                    <td className="r text-faint">{ago(g.createdAt)}</td>
+                    <td className="num">{ret(g.ret15)}</td>
+                    <td className="num">{ret(g.ret60)}</td>
+                    <td className="text-faint">{ago(g.createdAt)}</td>
                   </tr>
                 ))}
               </tbody>

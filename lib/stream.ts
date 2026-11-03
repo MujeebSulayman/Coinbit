@@ -14,7 +14,10 @@ type Sub = {
   serverId?: number;
 };
 
-const STALE_MS = 3 * 60_000; // no traffic at all for this long → assume the socket silently died
+const QUIET_MS = 90_000; // no traffic this long → probe the connection (quiet wallets are normal)
+const PROBE_TIMEOUT_MS = 20_000; // no answer to the probe → the socket is dead, reconnect
+// A program account that never changes: subscribing gets an immediate reply and no notifications.
+const PROBE_ACCOUNT = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
 const MAX_BACKOFF_MS = 30_000;
 
 class RpcStream {
@@ -27,6 +30,8 @@ class RpcStream {
   private backoff = 1000;
   private lastMsg = Date.now();
   private watchdog: ReturnType<typeof setInterval> | null = null;
+  private probeId: number | null = null;
+  private probeSentAt = 0;
   reconnects = 0;
 
   constructor(private url: string) {}
@@ -46,6 +51,13 @@ class RpcStream {
       try {
         msg = JSON.parse(String(ev.data));
       } catch {
+        return;
+      }
+      if (msg.id !== undefined && msg.id === this.probeId) {
+        // Liveness confirmed; drop the probe subscription again.
+        this.probeId = null;
+        if (typeof msg.result === "number")
+          this.ws?.send(JSON.stringify({ jsonrpc: "2.0", id: this.nextReq++, method: "accountUnsubscribe", params: [msg.result] }));
         return;
       }
       if (msg.id !== undefined) {
@@ -74,6 +86,7 @@ class RpcStream {
     };
     ws.onclose = () => {
       if (this.ws !== ws) return;
+      this.probeId = null;
       this.ws = null;
       this.reconnects++;
       const wait = this.backoff;
@@ -86,11 +99,22 @@ class RpcStream {
   private ensure() {
     if (!this.ws) this.connect();
     this.watchdog ??= setInterval(() => {
-      if (this.ws && this.subs.size && Date.now() - this.lastMsg > STALE_MS) {
-        console.warn("[stream] no traffic for 3m, reconnecting");
-        this.ws.close();
+      const ws = this.ws;
+      if (!ws || ws.readyState !== WebSocket.OPEN || !this.subs.size) return;
+      if (this.probeId !== null) {
+        if (Date.now() - this.probeSentAt > PROBE_TIMEOUT_MS) {
+          console.warn("[stream] connection not answering, reconnecting");
+          this.probeId = null;
+          ws.close();
+        }
+        return;
       }
-    }, 30_000);
+      if (Date.now() - this.lastMsg > QUIET_MS) {
+        this.probeId = this.nextReq++;
+        this.probeSentAt = Date.now();
+        ws.send(JSON.stringify({ jsonrpc: "2.0", id: this.probeId, method: "accountSubscribe", params: [PROBE_ACCOUNT, { encoding: "jsonParsed", commitment: "confirmed" }] }));
+      }
+    }, 15_000);
   }
 
   private sendSubscribe(local: number, s: Sub) {
@@ -123,7 +147,7 @@ class RpcStream {
   }
 
   get healthy() {
-    return this.ws?.readyState === WebSocket.OPEN && Date.now() - this.lastMsg < STALE_MS;
+    return this.ws?.readyState === WebSocket.OPEN && Date.now() - this.lastMsg < QUIET_MS + PROBE_TIMEOUT_MS + 15_000;
   }
 }
 

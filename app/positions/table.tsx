@@ -134,10 +134,10 @@ export function PositionsTable({ rows }: { rows: Position[] }) {
           <tr>
             <th>Coin</th>
             <th>Strategy</th>
-            <th className="r">Size</th>
-            <th className="r">Price move</th>
-            <th className="r">PnL</th>
-            <th className="r">TP hit</th>
+            <th>Size</th>
+            <th>Price move</th>
+            <th>PnL</th>
+            <th>TP hit</th>
             <th>Triggered by</th>
             <th>Opened</th>
             <th>Status</th>
@@ -155,11 +155,11 @@ export function PositionsTable({ rows }: { rows: Position[] }) {
                 <td>
                   <StrategyTag p={p} />
                 </td>
-                <td className="num r text-mute">{sol(p.sizeSol)}</td>
-                <td className={`num r ${d.open ? tone(d.gain) : "text-faint"}`}>
+                <td className="num text-mute">{sol(p.sizeSol)}</td>
+                <td className={`num ${d.open ? tone(d.gain) :"text-faint"}`}>
                   {d.open ? signedPct(d.gain) : "—"}
                 </td>
-                <td className="r">
+                <td>
                   <div className={`num font-medium ${tone(d.pnl)}`}>
                     {sol(d.pnl, true)}
                   </div>
@@ -167,7 +167,7 @@ export function PositionsTable({ rows }: { rows: Position[] }) {
                     {signedPct(d.pnlPct)}
                   </div>
                 </td>
-                <td className="num r">
+                <td className="num">
                   <TpPips hit={p.tpHit} levels={d.levels} />
                 </td>
                 <td>
@@ -195,7 +195,7 @@ export function PositionsTable({ rows }: { rows: Position[] }) {
                     </span>
                   )}
                 </td>
-                <td className="r">{d.open && <CloseButton p={p} />}</td>
+                <td className="act">{d.open && <CloseButton p={p} />}</td>
               </tr>
             );
           })}

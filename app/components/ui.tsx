@@ -240,8 +240,8 @@ export function Meter({
   const v = Math.max(0, Math.min(100, pct));
   const hot = warnAt != null && pct > warnAt;
   return (
-    <span className={`inline-flex items-center justify-end gap-2 ${className}`}>
-      <span className={`num ${hot ? "text-warn" : ""}`}>{pct.toFixed(0)}%</span>
+    <span className={`inline-flex items-center gap-2 ${className}`}>
+      <span className={`num w-9 ${hot ? "text-warn" : ""}`}>{pct.toFixed(0)}%</span>
       <span className="h-1 w-10 overflow-hidden rounded-full bg-line-strong">
         <span
           className={`block h-full rounded-full ${hot ? "bg-warn" : "bg-mute"}`}

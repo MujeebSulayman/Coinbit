@@ -155,8 +155,8 @@
   tbody tr:hover {
     background: var(--color-raised);
   }
-  th.r,
-  td.r {
+  th.act,
+  td.act {
     text-align: right;
   }
   .num {

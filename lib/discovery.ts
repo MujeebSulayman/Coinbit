@@ -268,11 +268,15 @@ export async function refreshWatchlist(vetBudget = config.histPerRun) {
 async function doRefreshWatchlist(vetBudget: number) {
   const min = config.minWinnersForWatch;
   const minProven = Math.min(min, config.minWinnersWithHistory);
-  const eligible = await db.wallet.findMany({
+  const top = await db.wallet.findMany({
     where: { status: { not: "EXCLUDED" }, OR: [{ winners: { gte: minProven } }, { launchWinners: { gte: min } }] },
     orderBy: { score: "desc" },
     take: config.watchlistSize * 2,
   });
+  // Currently watched wallets are always re-evaluated, even if their score fell outside the top slice,
+  // so a vetted wallet isn't silently dropped just because many unvetted candidates outrank it.
+  const watching = await db.wallet.findMany({ where: { status: "WATCHING", address: { notIn: top.map((w) => w.address) } } });
+  const eligible = [...top, ...watching].sort((a, b) => b.score - a.score);
   const staleBefore = new Date(Date.now() - config.histRecheckDays * 864e5);
 
   const picked: string[] = [];

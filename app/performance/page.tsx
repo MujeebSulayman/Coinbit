@@ -84,18 +84,18 @@ export default async function Performance() {
                     <thead>
                       <tr>
                         <th>Exit</th>
-                        <th className="r">Trades</th>
-                        <th className="r">PnL</th>
+                        <th>Trades</th>
+                        <th>PnL</th>
                       </tr>
                     </thead>
                     <tbody>
                       {perf.byExit.map(([k, e]) => (
                         <tr key={k}>
                           <td>{k}</td>
-                          <td className="num r text-mute">{e.n}</td>
-                          <td className="r">
-                            <span className="inline-flex items-center justify-end gap-2">
-                              <span className={`num ${tone(e.pnl)}`}>{sol(e.pnl, true)}</span>
+                          <td className="num text-mute">{e.n}</td>
+                          <td>
+                            <span className="inline-flex items-center gap-2">
+                              <span className={`num w-24 ${tone(e.pnl)}`}>{sol(e.pnl, true)}</span>
                               <span className="h-1 w-14 overflow-hidden rounded-full bg-line-strong">
                                 <span
                                   className={`block h-full rounded-full ${e.pnl >= 0 ? "bg-up" : "bg-down"}`}
@@ -119,11 +119,11 @@ export default async function Performance() {
                       <thead>
                         <tr>
                           <th>Decision</th>
-                          <th className="r">Signals</th>
-                          <th className="r">Avg +15m</th>
-                          <th className="r">Avg +60m</th>
-                          <th className="r">Hit +50%</th>
-                          <th className="r">Dead at 60m</th>
+                          <th>Signals</th>
+                          <th>Avg +15m</th>
+                          <th>Avg +60m</th>
+                          <th>Hit +50%</th>
+                          <th>Dead at 60m</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -138,11 +138,11 @@ export default async function Performance() {
                                 <span className="text-mute">Skipped · {g.reason}</span>
                               )}
                             </td>
-                            <td className="num r text-mute">{g.n}</td>
-                            <td className={`num r ${tone(g.avg15 ?? 0)}`}>{pct(g.avg15)}</td>
-                            <td className={`num r ${tone(g.avg60 ?? 0)}`}>{pct(g.avg60)}</td>
-                            <td className="num r">{pct(g.hit50 * 100, false)}</td>
-                            <td className="num r">{pct(g.dead * 100, false)}</td>
+                            <td className="num text-mute">{g.n}</td>
+                            <td className={`num ${tone(g.avg15 ?? 0)}`}>{pct(g.avg15)}</td>
+                            <td className={`num ${tone(g.avg60 ?? 0)}`}>{pct(g.avg60)}</td>
+                            <td className="num">{pct(g.hit50 * 100, false)}</td>
+                            <td className="num">{pct(g.dead * 100, false)}</td>
                           </tr>
                         ))}
                       </tbody>

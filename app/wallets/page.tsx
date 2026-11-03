@@ -45,8 +45,8 @@ function Action({ w, excluded }: { w: WalletRow; excluded: boolean }) {
 /** Score bar relative to the best wallet on the page. */
 function Score({ v, max }: { v: number; max: number }) {
   return (
-    <span className="inline-flex items-center justify-end gap-2">
-      <span className="num font-medium">{v.toFixed(1)}</span>
+    <span className="inline-flex items-center gap-2">
+      <span className="num w-9 font-medium">{v.toFixed(1)}</span>
       <span className="h-1 w-12 overflow-hidden rounded-full bg-line-strong">
         <span
           className="block h-full rounded-full bg-accent"
@@ -163,13 +163,13 @@ export default async function Wallets({
                   <th>Wallet</th>
                   {tab === "EXCLUDED" && <th>Why excluded</th>}
                   <th>Type</th>
-                  <th className="r">Score</th>
-                  <th className="r">Early on winners</th>
-                  <th className="r">Winning launches</th>
-                  <th className="r">Avg entry</th>
-                  <th className="r">History · win · PnL · coins</th>
-                  <th className="r">Signals</th>
-                  <th className="r">Copy PnL</th>
+                  <th>Score</th>
+                  <th>Early on winners</th>
+                  <th>Winning launches</th>
+                  <th>Avg entry</th>
+                  <th>History · win · PnL · coins</th>
+                  <th>Signals</th>
+                  <th>Copy PnL</th>
                   <th>Last active</th>
                   <th />
                 </tr>
@@ -199,17 +199,17 @@ export default async function Wallets({
                         {w.kind === "LAUNCHER" ? "Launcher" : "Trader"}
                       </Badge>
                     </td>
-                    <td className="r">
+                    <td>
                       <Score v={w.score} max={maxScore} />
                     </td>
-                    <td className="num r">{w.winners}</td>
-                    <td className="num r">{w.launchWinners}</td>
-                    <td className="num r text-mute">
+                    <td className="num">{w.winners}</td>
+                    <td className="num">{w.launchWinners}</td>
+                    <td className="num text-mute">
                       {w.winners
                         ? `#${w.avgEntryRank.toFixed(0)} · ${w.avgEntryMin.toFixed(1)}m`
                         : "—"}
                     </td>
-                    <td className="num r">
+                    <td className="num">
                       {w.histTokens != null ? (
                         <span
                           title={`Checked ${ago(w.histCheckedAt)}`}
@@ -225,12 +225,12 @@ export default async function Wallets({
                         <span className="text-faint">not vetted</span>
                       )}
                     </td>
-                    <td className="num r">{w.signalHits}</td>
-                    <td className={`num r ${tone(w.copyPnlSol)}`}>
+                    <td className="num">{w.signalHits}</td>
+                    <td className={`num ${tone(w.copyPnlSol)}`}>
                       {w.copyPnlSol ? sol(w.copyPnlSol, true) : "—"}
                     </td>
                     <td className="text-faint">{ago(w.lastActivity)}</td>
-                    <td className="r">
+                    <td className="act">
                       <Action w={w} excluded={tab === "EXCLUDED"} />
                     </td>
                   </tr>
