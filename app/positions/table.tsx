@@ -1,7 +1,7 @@
 import type { Position } from "@/generated/prisma/client";
 import { ago, sol, tone } from "@/lib/fmt";
 import { Button } from "../components/Controls";
-import { Addr, Badge } from "../components/ui";
+import { Addr, Badge, Coin } from "../components/ui";
 
 export function PositionsTable({ rows }: { rows: Position[] }) {
   return (
@@ -28,28 +28,26 @@ export function PositionsTable({ rows }: { rows: Position[] }) {
           return (
             <tr key={p.id}>
               <td>
-                <a href={`https://pump.fun/coin/${p.mint}`} target="_blank" rel="noreferrer" className="hover:text-up">
-                  {p.symbol ?? p.mint.slice(0, 6)}
-                </a>
+                <Coin mint={p.mint} symbol={p.symbol} />
               </td>
               <td>
-                <Badge kind={p.mode === "LIVE" ? "warn" : "mute"}>{p.mode}</Badge>
+                <Badge kind={p.mode === "LIVE" ? "warn" : "accent"}>{p.mode}</Badge>
               </td>
-              <td>{sol(p.sizeSol)}</td>
-              <td className={tone(gain)}>{p.status === "OPEN" ? `${gain >= 0 ? "+" : ""}${gain.toFixed(0)}%` : "—"}</td>
-              <td className={tone(pnl)}>{sol(pnl, true)}</td>
-              <td>{p.tpHit}</td>
-              <td className="space-x-2">
+              <td className="num">{sol(p.sizeSol)}</td>
+              <td className={`num ${tone(gain)}`}>{p.status === "OPEN" ? `${gain >= 0 ? "+" : ""}${gain.toFixed(0)}%` : "—"}</td>
+              <td className={`num ${tone(pnl)}`}>{sol(pnl, true)}</td>
+              <td className="num">{p.tpHit}/3</td>
+              <td className="space-x-1.5">
                 {p.triggerWallets.slice(0, 3).map((w) => (
                   <Addr key={w} a={w} />
                 ))}
                 {p.triggerWallets.length > 3 && <span className="text-mute">+{p.triggerWallets.length - 3}</span>}
               </td>
               <td className="text-mute">{ago(p.openedAt)}</td>
-              <td>{p.status === "OPEN" ? <Badge kind="up">open</Badge> : <span className="text-mute">{p.exitReason}</span>}</td>
+              <td>{p.status === "OPEN" ? <Badge kind="up"><span className="pulse" /> open</Badge> : <span className="text-mute">{p.exitReason}</span>}</td>
               <td>
                 {p.status === "OPEN" && (
-                  <Button action="close" extra={{ positionId: p.id }} danger>
+                  <Button action="close" extra={{ positionId: p.id }} danger small>
                     Close
                   </Button>
                 )}

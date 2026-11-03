@@ -32,7 +32,21 @@ export async function control(action: string, extra: Record<string, unknown> = {
   if (!res.ok) throw new Error(await res.text());
 }
 
-export function Button({ action, extra, children, danger }: { action: string; extra?: Record<string, unknown>; children: React.ReactNode; danger?: boolean }) {
+export function Button({
+  action,
+  extra,
+  children,
+  danger,
+  primary,
+  small,
+}: {
+  action: string;
+  extra?: Record<string, unknown>;
+  children: React.ReactNode;
+  danger?: boolean;
+  primary?: boolean;
+  small?: boolean;
+}) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
@@ -53,9 +67,7 @@ export function Button({ action, extra, children, danger }: { action: string; ex
             setBusy(false);
           }
         }}
-        className={`rounded border px-3 py-1 text-[12px] transition disabled:opacity-50 ${
-          danger ? "border-down/50 text-down hover:bg-down/10" : "border-up/50 text-up hover:bg-up/10"
-        }`}
+        className={`btn ${danger ? "btn-danger" : primary ? "btn-primary" : ""} ${small ? "btn-sm" : ""}`}
       >
         {busy ? "…" : children}
       </button>

@@ -21,16 +21,26 @@ export default async function Wallets({ searchParams }: { searchParams: Promise<
   return (
     <>
       <AutoRefresh ms={30_000} />
-      <div className="flex gap-2">
-        {TABS.map((t) => (
-          <Link
-            key={t}
-            href={`/wallets?tab=${t}`}
-            className={`rounded border px-3 py-1 text-[12px] ${t === tab ? "border-up/60 text-up" : "border-line text-mute hover:text-ink"}`}
-          >
-            {t.toLowerCase()} ({count(t)})
-          </Link>
-        ))}
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h1 className="text-[26px] font-semibold tracking-tight">Smart wallets</h1>
+          <p className="mt-1 text-mute">Found and ranked automatically. You never add wallets by hand.</p>
+        </div>
+        <div className="glass glass-pill inline-flex gap-0.5 p-1">
+          {TABS.map((t) => (
+            <Link
+              key={t}
+              href={`/wallets?tab=${t}`}
+              className={`rounded-full px-3.5 py-1.5 text-[12.5px] capitalize transition ${
+                t === tab
+                  ? "bg-white/[0.12] text-ink shadow-[inset_0_1px_0_rgba(255,255,255,.25)]"
+                  : "text-mute hover:text-ink"
+              }`}
+            >
+              {t.toLowerCase()} <span className="num text-faint">{count(t)}</span>
+            </Link>
+          ))}
+        </div>
       </div>
       <Panel title="Found automatically by the discovery engine">
         {wallets.length ? (
@@ -57,25 +67,25 @@ export default async function Wallets({ searchParams }: { searchParams: Promise<
                     <Addr a={w.address} href={`https://gmgn.ai/sol/address/${w.address}`} />
                   </td>
                   <td>
-                    <Badge kind={w.kind === "LAUNCHER" ? "warn" : "mute"}>{w.kind.toLowerCase()}</Badge>
+                    <Badge kind={w.kind === "LAUNCHER" ? "warn" : "accent"}>{w.kind.toLowerCase()}</Badge>
                   </td>
-                  <td>{w.score.toFixed(1)}</td>
-                  <td>{w.winners}</td>
-                  <td>{w.launchWinners}</td>
-                  <td className="text-mute">
+                  <td className="num font-medium">{w.score.toFixed(1)}</td>
+                  <td className="num">{w.winners}</td>
+                  <td className="num">{w.launchWinners}</td>
+                  <td className="num text-mute">
                     {w.winners ? `#${w.avgEntryRank.toFixed(0)} · ${w.avgEntryMin.toFixed(1)}m` : "—"}
                   </td>
-                  <td>{w.signalHits}</td>
-                  <td className={tone(w.copyPnlSol)}>{w.copyPnlSol ? sol(w.copyPnlSol, true) : "—"}</td>
+                  <td className="num">{w.signalHits}</td>
+                  <td className={`num ${tone(w.copyPnlSol)}`}>{w.copyPnlSol ? sol(w.copyPnlSol, true) : "—"}</td>
                   <td className="text-mute">{ago(w.lastActivity)}</td>
                   {tab === "EXCLUDED" && <td className="text-mute">{w.excludeReason}</td>}
                   <td>
                     {tab === "EXCLUDED" ? (
-                      <Button action="unexclude" extra={{ address: w.address }}>
+                      <Button action="unexclude" extra={{ address: w.address }} small>
                         Allow
                       </Button>
                     ) : (
-                      <Button action="exclude" extra={{ address: w.address }} danger>
+                      <Button action="exclude" extra={{ address: w.address }} danger small>
                         Block
                       </Button>
                     )}
