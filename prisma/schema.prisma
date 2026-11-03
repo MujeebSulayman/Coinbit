@@ -13,6 +13,7 @@ model Wallet {
   kind           String    @default("TRADER")
   status         String    @default("CANDIDATE") // CANDIDATE | WATCHING | EXCLUDED
   excludeReason  String?
+  allowed        Boolean   @default(false) // manually allowed from the dashboard: automatic filters skip it
   score          Float     @default(0)
   winners        Int       @default(0) // winning coins it entered early
   tokensSeen     Int       @default(0)
@@ -26,6 +27,12 @@ model Wallet {
   firstSeen      DateTime  @default(now())
   lastScored     DateTime  @default(now())
   lastActivity   DateTime?
+  // Full-history vetting (all recent trades, not just winners)
+  histTokens       Int?
+  histWinRate      Float?
+  histPnlSol       Float?
+  histTokensPerHour Float?
+  histCheckedAt    DateTime?
   entries        EarlyEntry[]
 
   @@index([status, score])
@@ -77,6 +84,7 @@ model WalletEvent {
 
 model Signal {
   id          Int      @id @default(autoincrement())
+  strategy    String   @default("copy") // copy | migration
   mint        String
   symbol      String?
   reason      String
@@ -85,6 +93,10 @@ model Signal {
   mcapUsd     Float?
   ageMin      Float?
   top10Pct    Float?
+  devHoldPct  Float?
+  snipePct    Float?   // % of supply bought by others in the launch slot
+  curvePct    Float?   // bonding curve progress
+  impactPct   Float?   // estimated price impact of our buy
   decision    String   // TAKEN | SKIPPED
   skipReason  String?
   positionId  Int?
@@ -95,6 +107,8 @@ model Signal {
 
 model Position {
   id              Int       @id @default(autoincrement())
+  strategy        String    @default("copy") // copy | migration
+  pool            String?   // PumpSwap pool, once the coin has migrated
   mint            String
   symbol          String?
   mode            String    // PAPER | LIVE

@@ -26,7 +26,14 @@ export default async function Wallets({ searchParams }: { searchParams: Promise<
   return (
     <>
       <AutoRefresh ms={30_000} />
-      <PageHeader title="Smart wallets" description="Found and ranked automatically by the discovery engine." />
+      <PageHeader
+        title="Smart wallets"
+        description={
+          tab === "EXCLUDED"
+            ? "Filtered out automatically: bots, launch snipers, insiders, or poor full-history results. Click Allow to override a decision permanently."
+            : "Found and ranked automatically by the discovery engine."
+        }
+      />
 
       <div className="flex gap-6 border-b border-line">
         {TABS.map(([t, label]) => (
@@ -48,15 +55,16 @@ export default async function Wallets({ searchParams }: { searchParams: Promise<
             <thead>
               <tr>
                 <th>Wallet</th>
+                {tab === "EXCLUDED" && <th>Why excluded</th>}
                 <th>Type</th>
                 <th className="r">Score</th>
                 <th className="r">Early on winners</th>
                 <th className="r">Winning launches</th>
                 <th className="r">Avg entry</th>
+                <th className="r">History (all coins)</th>
                 <th className="r">Signals</th>
                 <th className="r">Copy PnL</th>
                 <th>Last active</th>
-                {tab === "EXCLUDED" && <th>Reason</th>}
                 <th />
               </tr>
             </thead>
@@ -65,7 +73,13 @@ export default async function Wallets({ searchParams }: { searchParams: Promise<
                 <tr key={w.address}>
                   <td>
                     <Addr a={w.address} href={`https://gmgn.ai/sol/address/${w.address}`} />
+                    {w.allowed && <span className="ml-2 text-[12px] text-faint">allowed manually</span>}
                   </td>
+                  {tab === "EXCLUDED" && (
+                    <td>
+                      <Badge kind="down">{w.excludeReason ?? "—"}</Badge>
+                    </td>
+                  )}
                   <td>
                     <Badge kind={w.kind === "LAUNCHER" ? "warn" : "accent"}>{w.kind === "LAUNCHER" ? "Launcher" : "Trader"}</Badge>
                   </td>
@@ -73,10 +87,18 @@ export default async function Wallets({ searchParams }: { searchParams: Promise<
                   <td className="num r">{w.winners}</td>
                   <td className="num r">{w.launchWinners}</td>
                   <td className="num r text-mute">{w.winners ? `#${w.avgEntryRank.toFixed(0)} · ${w.avgEntryMin.toFixed(1)}m` : "—"}</td>
+                  <td className="num r">
+                    {w.histTokens != null ? (
+                      <span title={`Checked ${ago(w.histCheckedAt)}`}>
+                        {((w.histWinRate ?? 0) * 100).toFixed(0)}% win · <span className={tone(w.histPnlSol ?? 0)}>{sol(w.histPnlSol ?? 0, true)}</span> · {w.histTokens} coins
+                      </span>
+                    ) : (
+                      <span className="text-faint">not vetted</span>
+                    )}
+                  </td>
                   <td className="num r">{w.signalHits}</td>
                   <td className={`num r ${tone(w.copyPnlSol)}`}>{w.copyPnlSol ? sol(w.copyPnlSol, true) : "—"}</td>
                   <td className="text-faint">{ago(w.lastActivity)}</td>
-                  {tab === "EXCLUDED" && <td className="text-mute">{w.excludeReason}</td>}
                   <td className="r">
                     {tab === "EXCLUDED" ? (
                       <Button action="unexclude" extra={{ address: w.address }} small>

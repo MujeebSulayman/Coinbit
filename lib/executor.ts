@@ -4,17 +4,38 @@
  *
  * Live fills are read back from the confirmed transaction (real tokens received / SOL spent),
  * never from the quote, and sells are clamped to the wallet's actual token balance.
+ *
+ * Landing: the signed swap is broadcast to every configured RPC and, when JITO_TIP_LAMPORTS > 0,
+ * also sent to Jito as a bundle [swap, tip]. Bundles are atomic, so the tip is only paid if Jito
+ * is the path that lands the swap. Empty token accounts are closed after exits to recover rent.
  */
-import { Keypair, PublicKey, VersionedTransaction } from "@solana/web3.js";
+import {
+  Connection,
+  Keypair,
+  PublicKey,
+  SystemProgram,
+  Transaction,
+  TransactionInstruction,
+  TransactionMessage,
+  VersionedTransaction,
+} from "@solana/web3.js";
 import bs58 from "bs58";
 import { config } from "./config";
 import { log } from "./db";
-import { conn, sleep, solDelta, tokenDeltas, WSOL } from "./solana";
+import { sleep, solDelta, tokenDeltas, WSOL } from "./solana";
 
 const JUP = "https://lite-api.jup.ag/swap/v1";
 const PAPER_FEE_PCT = 1; // approximates pool/curve fees so paper PnL isn't flattering
 const SELL_ATTEMPTS = 3;
 const MAX_SLIPPAGE_BPS = 5000;
+const TOKEN_PROGRAM = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+const TOKEN_2022_PROGRAM = new PublicKey("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
+const FALLBACK_TIP_ACCOUNTS = [
+  "96gYZGLnJYVFmbjzopPSU6QiEV5fGqZNyN9nmNhvrZU5",
+  "HFqU5x63VTqvQss8hp11i4wVV8bD44PvwucfZ2bU7gRe",
+  "Cw8CFyM9FkoMi7K7Crf6HNQqf4uEMzpKw6QNghXLvLkY",
+  "ADaUMid9yfUytqMBgopwjb2DTLSokTSzL1zt6iGPaS49",
+];
 
 let _kp: Keypair | null = null;
 function trader(): Keypair {
@@ -25,31 +46,80 @@ function trader(): Keypair {
   return _kp;
 }
 
+/** Trade-path connections bypass the shared RPC rate limiter so exits never queue behind discovery. */
+let _fast: Connection[] | null = null;
+function fastConns(): Connection[] {
+  _fast ??= [config.rpcUrl, ...config.rpcFallbackUrls].map((u) => new Connection(u, { commitment: "confirmed" }));
+  return _fast;
+}
+const fast = () => fastConns()[0];
+
 /** empty = the wallet held none of the token, so there was nothing to sell. */
 export type Fill = { signature: string | null; tokens: number; sol: number; empty?: boolean };
 
-/** Sends a signed tx, re-broadcasting until it confirms or its blockhash expires. */
-async function sendAndConfirm(raw: Uint8Array, lastValidBlockHeight: number): Promise<string> {
-  if (config.jitoUrl) {
-    fetch(config.jitoUrl, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "sendTransaction", params: [Buffer.from(raw).toString("base64"), { encoding: "base64" }] }),
-    }).catch(() => {});
-  }
-  const sig = await conn().sendRawTransaction(raw, { skipPreflight: true, maxRetries: 0 });
-  for (;;) {
-    const { value } = await conn().getSignatureStatuses([sig]);
-    const st = value[0];
-    if (st?.err) throw new Error(`swap failed on-chain: ${JSON.stringify(st.err)}`);
-    if (st && (st.confirmationStatus === "confirmed" || st.confirmationStatus === "finalized")) return sig;
-    if ((await conn().getBlockHeight("confirmed")) > lastValidBlockHeight) {
-      // One last look: it may have landed right at the edge.
-      const final = (await conn().getSignatureStatuses([sig], { searchTransactionHistory: true })).value[0];
-      if (final && !final.err && final.confirmationStatus) return sig;
-      throw new Error(`swap expired without confirming (${sig})`);
+/* ---------------- Jito ---------------- */
+
+let tipAccounts: string[] | null = null;
+async function tipAccount(): Promise<PublicKey> {
+  if (!tipAccounts) {
+    try {
+      const r = await fetch(`${config.jitoUrl}/api/v1/bundles`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "getTipAccounts", params: [] }),
+        signal: AbortSignal.timeout(3000),
+      });
+      const j = (await r.json()) as { result?: string[] };
+      tipAccounts = j.result?.length ? j.result : FALLBACK_TIP_ACCOUNTS;
+    } catch {
+      tipAccounts = FALLBACK_TIP_ACCOUNTS;
     }
-    conn().sendRawTransaction(raw, { skipPreflight: true, maxRetries: 0 }).catch(() => {});
+  }
+  return new PublicKey(tipAccounts[Math.floor(Math.random() * tipAccounts.length)]);
+}
+
+async function sendJitoBundle(swap: VersionedTransaction) {
+  if (config.jitoTipLamports <= 0) return;
+  const kp = trader();
+  const msg = new TransactionMessage({
+    payerKey: kp.publicKey,
+    recentBlockhash: swap.message.recentBlockhash,
+    instructions: [SystemProgram.transfer({ fromPubkey: kp.publicKey, toPubkey: await tipAccount(), lamports: config.jitoTipLamports })],
+  }).compileToV0Message();
+  const tip = new VersionedTransaction(msg);
+  tip.sign([kp]);
+  const b64 = (t: VersionedTransaction) => Buffer.from(t.serialize()).toString("base64");
+  fetch(`${config.jitoUrl}/api/v1/bundles`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "sendBundle", params: [[b64(swap), b64(tip)], { encoding: "base64" }] }),
+  }).catch(() => {});
+}
+
+/* ---------------- sending ---------------- */
+
+function broadcast(raw: Uint8Array) {
+  for (const c of fastConns()) c.sendRawTransaction(raw, { skipPreflight: true, maxRetries: 0 }).catch(() => {});
+}
+
+/** Sends a signed tx on every path, re-broadcasting until it confirms or its blockhash expires. */
+async function sendAndConfirm(tx: VersionedTransaction | Transaction, lastValidBlockHeight: number): Promise<string> {
+  const raw = tx.serialize();
+  if (tx instanceof VersionedTransaction) await sendJitoBundle(tx).catch(() => {});
+  const sig = await fast().sendRawTransaction(raw, { skipPreflight: true, maxRetries: 0 });
+  broadcast(raw);
+  for (;;) {
+    const { value } = await fast().getSignatureStatuses([sig]);
+    const st = value[0];
+    if (st?.err) throw new Error(`tx failed on-chain: ${JSON.stringify(st.err)}`);
+    if (st && (st.confirmationStatus === "confirmed" || st.confirmationStatus === "finalized")) return sig;
+    if ((await fast().getBlockHeight("confirmed")) > lastValidBlockHeight) {
+      // One last look: it may have landed right at the edge.
+      const final = (await fast().getSignatureStatuses([sig], { searchTransactionHistory: true })).value[0];
+      if (final && !final.err && final.confirmationStatus) return sig;
+      throw new Error(`tx expired without confirming (${sig})`);
+    }
+    broadcast(raw);
     await sleep(1500);
   }
 }
@@ -58,7 +128,7 @@ async function sendAndConfirm(raw: Uint8Array, lastValidBlockHeight: number): Pr
 async function readFill(sig: string, mint: string): Promise<{ tokens: number; sol: number }> {
   const owner = trader().publicKey.toBase58();
   for (let i = 0; i < 8; i++) {
-    const tx = await conn()
+    const tx = await fast()
       .getParsedTransaction(sig, { maxSupportedTransactionVersion: 1, commitment: "confirmed" })
       .catch(() => null);
     if (tx) {
@@ -94,24 +164,75 @@ async function swap(inputMint: string, outputMint: string, amountRaw: bigint, sl
 
   const tx = VersionedTransaction.deserialize(Buffer.from(swapTransaction, "base64"));
   tx.sign([trader()]);
-  return sendAndConfirm(tx.serialize(), lastValidBlockHeight);
+  return sendAndConfirm(tx, lastValidBlockHeight);
 }
 
-/** Raw on-chain balance of a token in our wallet (works for SPL Token and Token-2022). */
-async function tokenBalance(mint: string): Promise<{ raw: bigint; decimals: number }> {
-  const res = await conn().getParsedTokenAccountsByOwner(trader().publicKey, { mint: new PublicKey(mint) }, "confirmed");
-  let raw = 0n;
-  let decimals = 6;
-  for (const a of res.value) {
-    const amt = a.account.data.parsed.info.tokenAmount;
-    raw += BigInt(amt.amount);
-    decimals = amt.decimals;
+/* ---------------- token accounts ---------------- */
+
+type TokenAcct = { pubkey: PublicKey; program: PublicKey; raw: bigint; decimals: number; lamports: number };
+
+async function tokenAccounts(mint?: string): Promise<TokenAcct[]> {
+  const owner = trader().publicKey;
+  const filters = mint ? [{ mint: new PublicKey(mint) }] : [{ programId: TOKEN_PROGRAM }, { programId: TOKEN_2022_PROGRAM }];
+  const out: TokenAcct[] = [];
+  for (const f of filters) {
+    const res = await fast().getParsedTokenAccountsByOwner(owner, f, "confirmed");
+    for (const a of res.value) {
+      const amt = a.account.data.parsed.info.tokenAmount;
+      out.push({ pubkey: a.pubkey, program: a.account.owner, raw: BigInt(amt.amount), decimals: amt.decimals, lamports: a.account.lamports });
+    }
   }
-  return { raw, decimals };
+  return out;
 }
 
-export async function buy(mint: string, sizeSol: number, priceSol: number): Promise<Fill> {
-  if (config.mode === "paper") {
+/** Closes empty token accounts (rent goes back to us). Returns SOL recovered. */
+async function closeEmpty(accts: TokenAcct[]): Promise<number> {
+  const empty = accts.filter((a) => a.raw === 0n);
+  let recovered = 0;
+  const owner = trader().publicKey;
+  for (let i = 0; i < empty.length; i += 8) {
+    const batch = empty.slice(i, i + 8);
+    const tx = new Transaction();
+    for (const a of batch) {
+      tx.add(
+        new TransactionInstruction({
+          programId: a.program,
+          keys: [
+            { pubkey: a.pubkey, isSigner: false, isWritable: true },
+            { pubkey: owner, isSigner: false, isWritable: true },
+            { pubkey: owner, isSigner: true, isWritable: false },
+          ],
+          data: Buffer.from([9]), // CloseAccount (same index in SPL Token and Token-2022)
+        }),
+      );
+    }
+    const { blockhash, lastValidBlockHeight } = await fast().getLatestBlockhash("confirmed");
+    tx.recentBlockhash = blockhash;
+    tx.feePayer = owner;
+    tx.sign(trader());
+    try {
+      await sendAndConfirm(tx, lastValidBlockHeight);
+      recovered += batch.reduce((s, a) => s + a.lamports, 0) / 1e9;
+    } catch (e) {
+      await log("trade", `closing ${batch.length} empty token accounts failed: ${(e as Error).message}`);
+    }
+  }
+  return recovered;
+}
+
+/** Live mode, on worker start: closes every leftover empty token account in the trading wallet. */
+export async function sweepEmptyTokenAccounts() {
+  if (!config.traderKey) return;
+  const sol = await closeEmpty(await tokenAccounts());
+  if (sol > 0) await log("trade", `recovered ${sol.toFixed(4)} SOL rent from empty token accounts`);
+}
+
+/* ---------------- buy / sell ---------------- */
+
+export type ExecMode = "paper" | "live";
+
+export async function buy(mint: string, sizeSol: number, priceSol: number, mode: ExecMode): Promise<Fill> {
+  if (mode === "paper") {
     const net = sizeSol * (1 - PAPER_FEE_PCT / 100);
     return { signature: null, tokens: priceSol > 0 ? net / priceSol : 0, sol: sizeSol };
   }
@@ -119,27 +240,35 @@ export async function buy(mint: string, sizeSol: number, priceSol: number): Prom
   const sig = await swap(WSOL, mint, BigInt(Math.floor(sizeSol * 1e9)), config.slippageBps, config.priorityFeeLamports);
   const fill = await readFill(sig, mint);
   if (fill.tokens <= 0) throw new Error(`buy ${sig} confirmed but received no tokens`);
-  // SOL spent includes network fees and token-account rent: the true cost of the position.
+  // SOL spent includes network fees and token-account rent (recovered when the position closes).
   return { signature: sig, tokens: fill.tokens, sol: -fill.sol };
 }
 
-/** Sells `tokens` (or everything held when `all`), retrying with wider slippage and higher fees. */
-export async function sell(mint: string, tokens: number, priceSol: number, all = false): Promise<Fill> {
-  if (config.mode === "paper") {
+/** Sells `tokens` (or everything held when `all`), retrying with wider slippage and higher fees.
+ *  On a full exit the emptied token account is closed and its rent added to the proceeds. */
+export async function sell(mint: string, tokens: number, priceSol: number, all: boolean, mode: ExecMode): Promise<Fill> {
+  if (mode === "paper") {
     return { signature: null, tokens, sol: tokens * priceSol * (1 - PAPER_FEE_PCT / 100) };
   }
   let lastErr: unknown;
   for (let attempt = 0; attempt < SELL_ATTEMPTS; attempt++) {
-    const bal = await tokenBalance(mint);
-    if (bal.raw === 0n) return { signature: null, tokens: 0, sol: 0, empty: true };
-    const want = BigInt(Math.floor(tokens * 10 ** bal.decimals));
-    const amount = all || want >= bal.raw ? bal.raw : want;
+    const accts = await tokenAccounts(mint);
+    const raw = accts.reduce((s, a) => s + a.raw, 0n);
+    if (raw === 0n) {
+      const rent = await closeEmpty(accts);
+      return { signature: null, tokens: 0, sol: rent, empty: true };
+    }
+    const decimals = accts.find((a) => a.raw > 0n)?.decimals ?? 6;
+    const want = BigInt(Math.floor(tokens * 10 ** decimals));
+    const amount = all || want >= raw ? raw : want;
     const slippage = Math.min(MAX_SLIPPAGE_BPS, config.slippageBps * (attempt + 1));
     const fee = config.priorityFeeLamports * 2 ** attempt;
     try {
       const sig = await swap(mint, WSOL, amount, slippage, fee);
       const fill = await readFill(sig, mint);
-      return { signature: sig, tokens: -fill.tokens, sol: fill.sol };
+      let sol = fill.sol;
+      if (amount === raw) sol += await closeEmpty((await tokenAccounts(mint)).filter((a) => a.raw === 0n));
+      return { signature: sig, tokens: -fill.tokens, sol };
     } catch (e) {
       lastErr = e;
       await log("trade", `sell ${mint} attempt ${attempt + 1}/${SELL_ATTEMPTS} failed: ${(e as Error).message}`);

@@ -15,29 +15,92 @@ export const IGNORED_MINTS = new Set([
 ]);
 export const PUMP_DECIMALS = 6;
 export const PUMP_TOTAL_SUPPLY = 1_000_000_000;
-
-let _conn: Connection | null = null;
-export function conn(): Connection {
-  if (!_conn) {
-    _conn = new Connection(config.rpcUrl, { wsEndpoint: config.wssUrl, commitment: "confirmed" });
-  }
-  return _conn;
-}
+const INITIAL_REAL_TOKEN_RESERVES = 793_100_000 * 10 ** 6; // raw units sold along the curve before graduation
 
 export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-/** Retry wrapper for flaky RPC / 429s. */
+/** Token bucket shared by every HTTP RPC call, so bursts never exceed the provider's per-second cap. */
+function rateLimitedFetch(maxRps: number): typeof fetch {
+  let tokens = maxRps;
+  let last = Date.now();
+  const waiters: (() => void)[] = [];
+  const refill = () => {
+    const now = Date.now();
+    tokens = Math.min(maxRps, tokens + ((now - last) / 1000) * maxRps);
+    last = now;
+    while (tokens >= 1 && waiters.length) {
+      tokens -= 1;
+      waiters.shift()!();
+    }
+    if (waiters.length) setTimeout(refill, Math.ceil(1000 / maxRps));
+  };
+  const take = () =>
+    new Promise<void>((resolve) => {
+      waiters.push(resolve);
+      if (waiters.length === 1) refill();
+    });
+  return (async (input: RequestInfo | URL, init?: RequestInit) => {
+    await take();
+    return fetch(input, init);
+  }) as typeof fetch;
+}
+
+const limitedFetch = rateLimitedFetch(config.rpcMaxRps);
+const rpcUrls = [config.rpcUrl, ...config.rpcFallbackUrls];
+const _conns: Connection[] = [];
+let active = 0;
+
+function connAt(i: number): Connection {
+  _conns[i] ??= new Connection(rpcUrls[i], { commitment: "confirmed", fetch: limitedFetch });
+  return _conns[i];
+}
+
+/** The active RPC connection. Rotates to a fallback endpoint when the active one keeps failing. */
+export function conn(): Connection {
+  return connAt(active);
+}
+
+/** Every configured RPC, for broadcasting signed transactions. */
+export function allConns(): Connection[] {
+  return rpcUrls.map((_, i) => connAt(i));
+}
+
+let failures = 0;
+function noteFailure() {
+  if (rpcUrls.length < 2) return;
+  if (++failures >= 3) {
+    failures = 0;
+    active = (active + 1) % rpcUrls.length;
+    console.warn(`[rpc] switching to endpoint #${active + 1} of ${rpcUrls.length}`);
+  }
+}
+
+/** Retry wrapper for flaky RPC / 429s. Repeated failures rotate to the next RPC endpoint. */
 export async function withRetry<T>(fn: () => Promise<T>, tries = 4, baseMs = 500): Promise<T> {
   let last: unknown;
   for (let i = 0; i < tries; i++) {
     try {
-      return await fn();
+      const r = await fn();
+      failures = 0;
+      return r;
     } catch (e) {
       last = e;
+      noteFailure();
       await sleep(baseMs * 2 ** i);
     }
   }
   throw last;
+}
+
+const ATA_PROGRAM = new PublicKey("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
+const TOKEN_PROGRAM = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+
+/** A PumpSwap pool's WSOL vault (its associated token account): its balance is the pool's real SOL. */
+export function poolSolVault(pool: string): PublicKey {
+  return PublicKey.findProgramAddressSync(
+    [new PublicKey(pool).toBuffer(), TOKEN_PROGRAM.toBuffer(), new PublicKey(WSOL).toBuffer()],
+    ATA_PROGRAM,
+  )[0];
 }
 
 export function bondingCurvePda(mint: string): PublicKey {
@@ -54,7 +117,9 @@ export type BondingCurve = {
   realSolReserves: bigint;
   tokenTotalSupply: bigint;
   complete: boolean;
+  creator: string | null; // present on current-layout curves (offset 49)
   priceSol: number; // SOL per 1 whole token
+  progressPct: number; // share of the sellable supply already bought off the curve
 };
 
 export function decodeBondingCurve(data: Buffer): BondingCurve | null {
@@ -65,6 +130,7 @@ export function decodeBondingCurve(data: Buffer): BondingCurve | null {
   const rSol = data.readBigUInt64LE(32);
   const supply = data.readBigUInt64LE(40);
   const complete = data[48] === 1;
+  const creator = data.length >= 81 ? new PublicKey(data.subarray(49, 81)).toBase58() : null;
   const priceSol =
     vTok > 0n ? Number(vSol) / 1e9 / (Number(vTok) / 10 ** PUMP_DECIMALS) : 0;
   return {
@@ -74,6 +140,8 @@ export function decodeBondingCurve(data: Buffer): BondingCurve | null {
     realSolReserves: rSol,
     tokenTotalSupply: supply,
     complete,
+    creator,
+    progressPct: complete ? 100 : Math.max(0, Math.min(100, (1 - Number(rTok) / INITIAL_REAL_TOKEN_RESERVES) * 100)),
     priceSol,
   };
 }

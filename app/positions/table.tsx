@@ -9,6 +9,7 @@ export function PositionsTable({ rows }: { rows: Position[] }) {
       <thead>
         <tr>
           <th>Coin</th>
+          <th>Strategy</th>
           <th>Mode</th>
           <th className="r">Size</th>
           <th className="r">Gain</th>
@@ -30,14 +31,16 @@ export function PositionsTable({ rows }: { rows: Position[] }) {
               <td>
                 <Coin mint={p.mint} symbol={p.symbol} />
               </td>
+              <td>{p.strategy === "migration" ? "Migration" : "Copy"}</td>
               <td>
                 <Badge kind={p.mode === "LIVE" ? "warn" : "accent"}>{p.mode}</Badge>
               </td>
               <td className="num r">{sol(p.sizeSol)}</td>
               <td className={`num r ${tone(gain)}`}>{p.status === "OPEN" ? `${gain >= 0 ? "+" : ""}${gain.toFixed(0)}%` : "—"}</td>
               <td className={`num r font-medium ${tone(pnl)}`}>{sol(pnl, true)}</td>
-              <td className="num r">{p.tpHit}/3</td>
+              <td className="num r">{p.tpHit}</td>
               <td className="space-x-2">
+                {!p.triggerWallets.length && <span className="text-faint">—</span>}
                 {p.triggerWallets.slice(0, 3).map((w) => (
                   <Addr key={w} a={w} />
                 ))}

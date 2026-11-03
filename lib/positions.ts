@@ -2,8 +2,10 @@
 import type { Position } from "@/generated/prisma/client";
 import { config } from "./config";
 import { db, getKv, log, setKv } from "./db";
-import { buy, sell } from "./executor";
-import { quotes } from "./market";
+import { buy, type ExecMode, sell } from "./executor";
+import type { Strategy } from "./modes";
+import { jupSellPrice, quotes } from "./market";
+import { syncPriceFeeds } from "./pricefeed";
 import { notify, short } from "./telegram";
 
 const startOfDay = () => {
@@ -24,12 +26,14 @@ export async function todaysPnlSol(): Promise<number> {
   return closed.reduce((s, p) => s + p.realizedSol - p.sizeSol, 0);
 }
 
-/** Checks risk limits. Returns a reason string if we must not open a new trade. */
-export async function riskBlock(mint: string): Promise<string | null> {
+/** Checks risk limits. Returns a reason string if we must not open a new trade.
+ *  The pause switch and daily loss limit are shared; open-position caps are per strategy. */
+export async function riskBlock(mint: string, strategy: Strategy = "copy"): Promise<string | null> {
   if (await isPaused()) return "trading paused";
-  const open = await db.position.findMany({ where: { status: "OPEN" }, select: { mint: true } });
+  const open = await db.position.findMany({ where: { status: "OPEN" }, select: { mint: true, strategy: true } });
   if (open.some((p) => p.mint === mint)) return "already holding";
-  if (open.length >= config.maxOpenPositions) return "max open positions";
+  const cap = strategy === "migration" ? config.migrationMaxOpen : config.maxOpenPositions;
+  if (open.filter((p) => p.strategy === strategy).length >= cap) return "max open positions";
   const pnl = await todaysPnlSol();
   if (pnl <= -config.dailyLossLimitSol) {
     await setKv("trading:paused", "true");
@@ -44,15 +48,22 @@ export async function openPosition(opts: {
   symbol?: string | null;
   priceSol: number;
   triggerWallets: string[];
+  strategy?: Strategy;
+  mode: ExecMode;
+  sizeSol?: number;
+  pool?: string | null;
 }): Promise<Position | null> {
-  const fill = await buy(opts.mint, config.positionSizeSol, opts.priceSol);
+  const strategy = opts.strategy ?? "copy";
+  const fill = await buy(opts.mint, opts.sizeSol ?? config.positionSizeSol, opts.priceSol, opts.mode);
   if (fill.tokens <= 0) return null;
   const entry = fill.sol / fill.tokens;
   const p = await db.position.create({
     data: {
+      strategy,
+      pool: opts.pool ?? undefined,
       mint: opts.mint,
       symbol: opts.symbol,
-      mode: config.mode === "live" ? "LIVE" : "PAPER",
+      mode: opts.mode === "live" ? "LIVE" : "PAPER",
       sizeSol: fill.sol,
       entryPriceSol: entry,
       tokenAmount: fill.tokens,
@@ -63,9 +74,10 @@ export async function openPosition(opts: {
       entrySig: fill.signature,
     },
   });
-  await log("trade", `BUY ${opts.symbol ?? opts.mint} ${fill.sol} SOL (${p.mode})`);
+  await log("trade", `BUY ${opts.symbol ?? opts.mint} ${fill.sol} SOL (${strategy}, ${p.mode})`);
+  const why = strategy === "migration" ? "Graduated to PumpSwap" : `Wallets: ${opts.triggerWallets.map(short).join(", ")}`;
   await notify(
-    `🟢 <b>BUY ${opts.symbol ?? short(opts.mint)}</b> [${p.mode}]\n${fill.sol} SOL @ ${entry.toExponential(3)}\nWallets: ${opts.triggerWallets.map(short).join(", ")}\nhttps://pump.fun/coin/${opts.mint}`,
+    `🟢 <b>BUY ${opts.symbol ?? short(opts.mint)}</b> [${strategy} · ${p.mode}]\n${fill.sol} SOL @ ${entry.toExponential(3)}\n${why}\nhttps://pump.fun/coin/${opts.mint}`,
   );
   return p;
 }
@@ -88,7 +100,7 @@ async function sellPart(stale: Position, tokens: number, priceSol: number, reaso
 
 async function doSell(p: Position, tokens: number, priceSol: number, reason: string, close: boolean) {
   tokens = Math.min(tokens, p.remainingTokens);
-  const fill = await sell(p.mint, tokens, priceSol, close);
+  const fill = await sell(p.mint, tokens, priceSol, close, p.mode === "LIVE" ? "live" : "paper");
   if (fill.empty) reason = `${reason} (wallet held no tokens)`;
   const remaining = close || fill.empty ? 0 : p.remainingTokens - fill.tokens;
   const realized = p.realizedSol + fill.sol;
@@ -127,61 +139,87 @@ export async function closePosition(id: number, reason: string) {
   await sellPart(p, p.remainingTokens, q?.priceSol ?? p.currentPriceSol, reason, true);
 }
 
-/** Runs every few seconds: updates prices and applies exit rules. */
+const checking = new Set<number>(); // positions whose exit rules are being evaluated
+
+function exitRules(strategy: string) {
+  return strategy === "migration"
+    ? { stopLossPct: config.migrationStopLossPct, maxHoldMin: config.migrationMaxHoldMin, tpLevels: config.migrationTpLevels }
+    : { stopLossPct: config.stopLossPct, maxHoldMin: config.maxHoldMin, tpLevels: config.tpLevels };
+}
+
+/** Applies stop-loss / time exit / take-profit ladder at `price`. Re-reads the position so concurrent
+ *  triggers (poll + live feed) never act on a stale take-profit level. */
+async function checkExits(id: number, price: number) {
+  if (checking.has(id) || price <= 0) return;
+  checking.add(id);
+  try {
+    let p = await db.position.findUnique({ where: { id } });
+    if (!p || p.status !== "OPEN") return;
+    p = await db.position.update({
+      where: { id },
+      data: { currentPriceSol: price, peakPriceSol: Math.max(p.peakPriceSol, price) },
+    });
+    const gainPct = (price / p.entryPriceSol - 1) * 100;
+    const heldMin = (Date.now() - p.openedAt.getTime()) / 60_000;
+    const rules = exitRules(p.strategy);
+
+    if (gainPct <= -rules.stopLossPct) {
+      await sellPart(p, p.remainingTokens, price, `stop-loss ${gainPct.toFixed(0)}%`, true);
+      return;
+    }
+    if (heldMin >= rules.maxHoldMin) {
+      await sellPart(p, p.remainingTokens, price, `time exit ${Math.round(heldMin)}m`, true);
+      return;
+    }
+    const level = rules.tpLevels[p.tpHit];
+    if (level && gainPct >= level.gainPct) {
+      const isLast = p.tpHit === rules.tpLevels.length - 1;
+      const updated = await sellPart(p, (p.tokenAmount * level.sellPct) / 100, price, `take-profit +${level.gainPct}%`, isLast);
+      if (updated?.status === "OPEN") {
+        await db.position.update({ where: { id }, data: { tpHit: { increment: 1 } } });
+      }
+    }
+  } catch (e) {
+    await log("trade", `exit error on position ${id}: ${(e as Error).message}`);
+  } finally {
+    checking.delete(id);
+  }
+}
+
+const lastLive = new Map<number, number>();
+/** Live price from the bonding-curve feed: reacts to every trade, throttled to once per 750ms. */
+function onLivePrice(id: number, price: number) {
+  const now = Date.now();
+  if (now - (lastLive.get(id) ?? 0) < 750) return;
+  lastLive.set(id, now);
+  checkExits(id, price).catch(() => {});
+}
+
+/** Runs every few seconds: polls prices (covers migrated coins), handles manual closes, syncs live feeds. */
 export async function managePositions() {
   const open = await db.position.findMany({ where: { status: "OPEN" } });
+  await syncPriceFeeds(open, onLivePrice);
   if (open.length === 0) return;
   const q = await quotes([...new Set(open.map((p) => p.mint))]);
 
-  for (let p of open) {
+  for (const p of open) {
     const manual = await getKv(`close:${p.id}`);
     if (manual) {
       await db.kv.delete({ where: { key: `close:${p.id}` } }).catch(() => {});
       await closePosition(p.id, "manual close");
       continue;
     }
-    const price = q.get(p.mint)?.priceSol;
-    if (!price || price <= 0) continue;
-    p = await db.position.update({
-      where: { id: p.id },
-      data: { currentPriceSol: price, peakPriceSol: Math.max(p.peakPriceSol, price) },
-    });
-    const gainPct = (price / p.entryPriceSol - 1) * 100;
-    const heldMin = (Date.now() - p.openedAt.getTime()) / 60_000;
-
-    try {
-      if (gainPct <= -config.stopLossPct) {
-        await sellPart(p, p.remainingTokens, price, `stop-loss ${gainPct.toFixed(0)}%`, true);
-        continue;
-      }
-      if (heldMin >= config.maxHoldMin) {
-        await sellPart(p, p.remainingTokens, price, `time exit ${Math.round(heldMin)}m`, true);
-        continue;
-      }
-      const level = config.tpLevels[p.tpHit];
-      if (level && gainPct >= level.gainPct) {
-        const isLast = p.tpHit === config.tpLevels.length - 1;
-        const updated = await sellPart(
-          p,
-          (p.tokenAmount * level.sellPct) / 100,
-          price,
-          `take-profit +${level.gainPct}%`,
-          isLast,
-        );
-        if (updated?.status === "OPEN") {
-          await db.position.update({ where: { id: p.id }, data: { tpHit: { increment: 1 } } });
-        }
-      }
-    } catch (e) {
-      await log("trade", `exit error on ${p.mint}: ${(e as Error).message}`);
-    }
+    const quote = q.get(p.mint);
+    // Graduated coins: price by what selling our bag would actually return.
+    const price = quote && !quote.onCurve ? ((await jupSellPrice(p.mint, p.remainingTokens)) ?? quote.priceSol) : quote?.priceSol;
+    if (price && price > 0) await checkExits(p.id, price);
   }
 }
 
 /** Called by the listener when a watched wallet sells. Closes if most trigger wallets have exited. */
 export async function onTrackedSell(wallet: string, mint: string) {
   if (!config.mirrorExits) return;
-  const p = await db.position.findFirst({ where: { mint, status: "OPEN" } });
+  const p = await db.position.findFirst({ where: { mint, status: "OPEN", strategy: "copy" } });
   if (!p || !p.triggerWallets.includes(wallet)) return;
   const sellers = await db.walletEvent.findMany({
     where: { mint, side: "SELL", wallet: { in: p.triggerWallets }, ts: { gte: p.openedAt } },

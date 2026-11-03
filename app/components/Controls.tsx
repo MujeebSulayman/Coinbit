@@ -39,6 +39,8 @@ export function Button({
   danger,
   primary,
   small,
+  confirmText,
+  disabled,
 }: {
   action: string;
   extra?: Record<string, unknown>;
@@ -46,6 +48,8 @@ export function Button({
   danger?: boolean;
   primary?: boolean;
   small?: boolean;
+  confirmText?: string;
+  disabled?: boolean;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -53,8 +57,9 @@ export function Button({
   return (
     <span className="inline-flex items-center gap-2">
       <button
-        disabled={busy}
+        disabled={busy || disabled}
         onClick={async () => {
+          if (confirmText && !window.confirm(confirmText)) return;
           setBusy(true);
           setMsg("");
           try {

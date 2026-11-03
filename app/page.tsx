@@ -15,7 +15,6 @@ export default async function Overview() {
     db.signal.findMany({ orderBy: { createdAt: "desc" }, take: 10 }),
     db.runLog.findMany({ orderBy: { createdAt: "desc" }, take: 30 }),
   ]);
-  const mode = (s.heartbeat?.mode ?? s.mode).toUpperCase();
   const total = s.realized + s.unrealized;
 
   return (
@@ -27,7 +26,6 @@ export default async function Overview() {
         description={
           <div className="flex flex-wrap items-center gap-2">
             <Badge kind={s.workerOnline ? "up" : "down"}>{s.workerOnline ? "Worker online" : "Worker offline"}</Badge>
-            <Badge kind={mode === "LIVE" ? "warn" : "accent"}>{mode} mode</Badge>
             {s.paused && <Badge kind="down">Trading paused</Badge>}
             <span>Last discovery {ago(s.lastDiscovery)}</span>
           </div>
@@ -57,6 +55,66 @@ export default async function Overview() {
         <Stat label="Candidates" value={s.candidates} sub={`${s.excluded} filtered out`} />
         <Stat label="Signals (24h)" value={s.signals24} sub={`${s.taken24} taken`} />
       </div>
+
+      <Panel title="Strategies">
+        <table>
+          <thead>
+            <tr>
+              <th>Strategy</th>
+              <th>Mode</th>
+              <th className="r">Realized PnL</th>
+              <th className="r">Trades</th>
+              <th className="r">Win rate</th>
+              <th className="r">Open</th>
+              <th className="r">Switch mode</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(
+              [
+                ["copy", "Copy trading", "Copies smart wallets when 2+ buy the same fresh coin"],
+                ["migration", "Migration", "Buys graduations to PumpSwap that hold up after the first minute"],
+              ] as const
+            ).map(([key, name, desc]) => {
+              const m = s.modes[key];
+              const st = s.byStrategy[key];
+              return (
+                <tr key={key}>
+                  <td className="whitespace-normal">
+                    <div className="font-medium">{name}</div>
+                    <div className="text-[12.5px] text-faint">{desc}</div>
+                  </td>
+                  <td>
+                    <Badge kind={m === "live" ? "warn" : m === "paper" ? "accent" : "mute"}>{m.toUpperCase()}</Badge>
+                  </td>
+                  <td className={`num r ${tone(st.realized)}`}>{sol(st.realized, true)}</td>
+                  <td className="num r">{st.trades}</td>
+                  <td className="num r">{st.trades ? `${(st.winRate * 100).toFixed(0)}%` : "—"}</td>
+                  <td className="num r">{st.open}</td>
+                  <td className="r space-x-1">
+                    <Button action="setMode" extra={{ strategy: key, mode: "off" }} small disabled={m === "off"}>
+                      Off
+                    </Button>
+                    <Button action="setMode" extra={{ strategy: key, mode: "paper" }} small disabled={m === "paper"}>
+                      Paper
+                    </Button>
+                    <Button
+                      action="setMode"
+                      extra={{ strategy: key, mode: "live" }}
+                      small
+                      danger
+                      disabled={m === "live"}
+                      confirmText={`Switch ${name} to LIVE? It will trade real SOL from your trading wallet.`}
+                    >
+                      Live
+                    </Button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </Panel>
 
       <Panel title={`Open positions (${open.length})`}>
         {open.length ? <PositionsTable rows={open} /> : <Empty>No open positions.</Empty>}

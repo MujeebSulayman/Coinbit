@@ -6,7 +6,8 @@
  * 2. For each winner, walk the bonding curve back to launch and record the first N buyers.
  * 3. Score every wallet by how often and how early it shows up on winners.
  * 4. Filter out launch-block snipers/bundles, dev insiders and high-frequency bots.
- * 5. Promote the top wallets (traders + launchers) to the watchlist; demote the rest.
+ * 5. Vet each candidate's full recent trading history (win rate / PnL across all coins).
+ * 6. Promote the top vetted wallets (traders + launchers) to the watchlist; demote the rest.
  */
 import { db, log, setKv } from "./db";
 import { config } from "./config";
@@ -24,9 +25,10 @@ import {
 import { dexscreenerCandidates, pumpfunCandidates, quotes, type WinnerCandidate } from "./market";
 import { PublicKey } from "@solana/web3.js";
 import { notify } from "./telegram";
+import { historyVerdict, walletHistory } from "./history";
 
 const MAX_TOKENS_PER_RUN = Number(process.env.DISCOVERY_MAX_TOKENS ?? 40);
-const STICKY_EXCLUDES = ["hft", "manual"];
+const STICKY_EXCLUDES = ["hft", "manual", "bot"];
 
 async function collectWinners(): Promise<WinnerCandidate[]> {
   const [dex, pump, learned] = await Promise.all([
@@ -173,11 +175,16 @@ export async function rescoreWallets() {
     const launcherScore = lw * 15 + Math.max(-30, Math.min(30, w.copyPnlSol * 10));
     const isLauncher = lw >= config.minWinnersForWatch && launcherScore >= traderScore;
     let score = Math.max(traderScore, launcherScore);
+    // Full-history quality: reward wallets that are profitable across everything they trade.
+    if (w.histTokens != null && w.histTokens >= config.histMinTokens) {
+      score += (w.histWinRate ?? 0) * 20 + Math.max(-20, Math.min(20, (w.histPnlSol ?? 0) * 2));
+    }
     if (w.lastActivity && Date.now() - w.lastActivity.getTime() > 14 * 864e5) score *= 0.7;
 
     let excludeReason: string | null = null;
     const sticky = w.excludeReason && STICKY_EXCLUDES.some((p) => w.excludeReason!.startsWith(p));
-    if (sticky) excludeReason = w.excludeReason;
+    if (w.allowed) excludeReason = null; // manually allowed from the dashboard
+    else if (sticky) excludeReason = w.excludeReason;
     else if (winners >= 2 && bundleRate >= 0.5) excludeReason = "sniper: buys in the launch block (bundle/dev group)";
     else if (topCreatorCount >= 2 && topCreatorCount / Math.max(1, winners) > 0.6 && !isLauncher)
       excludeReason = `insider: mostly early on coins from launcher ${topCreator.slice(0, 6)}`;
@@ -210,17 +217,55 @@ async function looksLikeHftBot(address: string): Promise<boolean> {
   return span > 0 && span < 3 * 3600;
 }
 
-export async function refreshWatchlist() {
+/** Stored history → exclusion reason (re-evaluated every refresh, so threshold changes apply immediately). */
+function storedHistoryVerdict(w: { histTokens: number | null; histWinRate: number | null; histPnlSol: number | null; histTokensPerHour: number | null }) {
+  if (w.histTokens == null) return null;
+  return historyVerdict({
+    tokens: w.histTokens,
+    wins: 0,
+    winRate: w.histWinRate ?? 0,
+    pnlSol: w.histPnlSol ?? 0,
+    tokensPerHour: w.histTokensPerHour ?? 0,
+    buySizeCv: 1, // identical-size bots are excluded stickily at check time
+    buys: 0,
+  });
+}
+
+/**
+ * Picks the watchlist from the best-scoring candidates. Only wallets whose full history has been
+ * vetted are watched; up to `vetBudget` unvetted (or stale) wallets are vetted per call.
+ */
+let refreshing = false;
+export async function refreshWatchlist(vetBudget = config.histPerRun) {
+  if (refreshing) {
+    const n = await db.wallet.count({ where: { status: "WATCHING" } });
+    return { before: n, after: n, vetted: 0 };
+  }
+  refreshing = true;
+  try {
+    return await doRefreshWatchlist(vetBudget);
+  } finally {
+    refreshing = false;
+  }
+}
+
+async function doRefreshWatchlist(vetBudget: number) {
   const min = config.minWinnersForWatch;
   const eligible = await db.wallet.findMany({
     where: { status: { not: "EXCLUDED" }, OR: [{ winners: { gte: min } }, { launchWinners: { gte: min } }] },
     orderBy: { score: "desc" },
     take: config.watchlistSize * 2,
   });
+  const staleBefore = new Date(Date.now() - config.histRecheckDays * 864e5);
 
   const picked: string[] = [];
+  let vetted = 0;
   for (const w of eligible) {
     if (picked.length >= config.watchlistSize) break;
+    if (w.allowed) {
+      picked.push(w.address);
+      continue;
+    }
     if (!w.botChecked) {
       const bot = await looksLikeHftBot(w.address).catch(() => false);
       await db.wallet.update({
@@ -231,6 +276,43 @@ export async function refreshWatchlist() {
       });
       if (bot) continue;
     }
+
+    let hist = w;
+    if (!w.histCheckedAt || w.histCheckedAt < staleBefore) {
+      if (vetted >= vetBudget) {
+        // Not vetted yet: keep watching if it already was (until its turn comes), never promote unvetted.
+        if (w.status === "WATCHING" && w.histCheckedAt) picked.push(w.address);
+        continue;
+      }
+      vetted++;
+      try {
+        const h = await walletHistory(w.address);
+        hist = await db.wallet.update({
+          where: { address: w.address },
+          data: {
+            histTokens: h.tokens,
+            histWinRate: h.winRate,
+            histPnlSol: h.pnlSol,
+            histTokensPerHour: h.tokensPerHour,
+            histCheckedAt: new Date(),
+          },
+        });
+        const verdict = historyVerdict(h);
+        if (verdict?.startsWith("bot")) {
+          await db.wallet.update({ where: { address: w.address }, data: { status: "EXCLUDED", excludeReason: verdict } });
+          continue;
+        }
+      } catch (e) {
+        await log("discovery", `history check ${w.address} failed: ${(e as Error).message}`);
+        continue;
+      }
+    }
+
+    const verdict = storedHistoryVerdict(hist);
+    if (verdict) {
+      await db.wallet.update({ where: { address: w.address }, data: { status: "EXCLUDED", excludeReason: verdict } });
+      continue;
+    }
     picked.push(w.address);
   }
 
@@ -240,7 +322,15 @@ export async function refreshWatchlist() {
     data: { status: "CANDIDATE" },
   });
   await db.wallet.updateMany({ where: { address: { in: picked } }, data: { status: "WATCHING" } });
-  return { before, after: picked.length };
+  return { before, after: picked.length, vetted };
+}
+
+/** Background job: vets more candidates between discovery runs so the watchlist keeps growing. */
+export async function vetMore() {
+  if (running) return null;
+  const r = await refreshWatchlist();
+  if (r.vetted) await log("discovery", `vetted ${r.vetted} wallets, watchlist ${r.before} → ${r.after}`);
+  return r;
 }
 
 let running = false;
@@ -267,7 +357,7 @@ export async function runDiscovery() {
     }
     await rescoreWallets();
     const wl = await refreshWatchlist();
-    const msg = `winners found ${winners.length}, studied ${studied}, early buyers ${buyers}, watchlist ${wl.before} → ${wl.after} (${Math.round((Date.now() - started) / 1000)}s)`;
+    const msg = `winners found ${winners.length}, studied ${studied}, early buyers ${buyers}, watchlist ${wl.before} → ${wl.after}, vetted ${wl.vetted} (${Math.round((Date.now() - started) / 1000)}s)`;
     await log("discovery", msg);
     await setKv("discovery:lastRun", new Date().toISOString());
     await notify(`🔎 <b>Discovery done</b>\n${msg}`);

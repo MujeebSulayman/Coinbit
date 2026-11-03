@@ -1,6 +1,6 @@
-import { getBondingCurves, PUMP_TOTAL_SUPPLY, WSOL } from "./solana";
+import { getBondingCurves, PUMP_DECIMALS, PUMP_TOTAL_SUPPLY, WSOL } from "./solana";
 
-type DexPair = {
+export type DexPair = {
   chainId: string;
   dexId: string;
   pairAddress: string;
@@ -12,6 +12,8 @@ type DexPair = {
   fdv?: number;
   liquidity?: { usd?: number };
   pairCreatedAt?: number;
+  txns?: { m5?: { buys: number; sells: number } };
+  volume?: { m5?: number };
 };
 
 async function getJson<T>(url: string, timeoutMs = 10_000): Promise<T | null> {
@@ -59,6 +61,9 @@ export type Quote = {
   priceSol: number;
   mcapUsd: number;
   onCurve: boolean;
+  /** Bonding-curve details (only while on the curve). */
+  curve?: { progressPct: number; vSol: number; creator: string | null };
+  liquidityUsd?: number;
   symbol?: string;
   name?: string;
   pairCreatedAt?: number;
@@ -73,7 +78,13 @@ export async function quotes(mints: string[]): Promise<Map<string, Quote>> {
   for (const m of mints) {
     const bc = curves.get(m);
     if (bc && !bc.complete && bc.priceSol > 0) {
-      out.set(m, { mint: m, priceSol: bc.priceSol, mcapUsd: bc.priceSol * PUMP_TOTAL_SUPPLY * sol, onCurve: true });
+      out.set(m, {
+        mint: m,
+        priceSol: bc.priceSol,
+        mcapUsd: bc.priceSol * PUMP_TOTAL_SUPPLY * sol,
+        onCurve: true,
+        curve: { progressPct: bc.progressPct, vSol: Number(bc.virtualSolReserves) / 1e9, creator: bc.creator },
+      });
     } else needDex.push(m);
   }
   if (needDex.length) {
@@ -89,6 +100,7 @@ export async function quotes(mints: string[]): Promise<Map<string, Quote>> {
         priceSol,
         mcapUsd: p.marketCap ?? p.fdv ?? 0,
         onCurve: false,
+        liquidityUsd: p.liquidity?.usd,
         symbol: p.baseToken.symbol,
         name: p.baseToken.name,
         pairCreatedAt: p.pairCreatedAt,
@@ -96,6 +108,38 @@ export async function quotes(mints: string[]): Promise<Map<string, Quote>> {
     }
   }
   return out;
+}
+
+/* ---------------- Jupiter quotes (executable prices) ---------------- */
+
+const JUP = "https://lite-api.jup.ag/swap/v1";
+
+/** What `sol` buys right now: tokens out and effective price (includes fees and price impact). */
+export async function jupBuyQuote(mint: string, sol: number): Promise<{ tokens: number; priceSol: number; impactPct: number } | null> {
+  const j = await getJson<{ outAmount?: string; priceImpactPct?: string }>(
+    `${JUP}/quote?inputMint=${WSOL}&outputMint=${mint}&amount=${Math.floor(sol * 1e9)}&slippageBps=1500`,
+    5000,
+  );
+  const tokens = Number(j?.outAmount ?? 0) / 10 ** PUMP_DECIMALS;
+  if (!tokens) return null;
+  return { tokens, priceSol: sol / tokens, impactPct: Number(j?.priceImpactPct ?? 0) * 100 };
+}
+
+/** What selling `tokens` returns right now, as an effective price per token. */
+export async function jupSellPrice(mint: string, tokens: number): Promise<number | null> {
+  if (tokens <= 0) return null;
+  const j = await getJson<{ outAmount?: string }>(
+    `${JUP}/quote?inputMint=${mint}&outputMint=${WSOL}&amount=${Math.floor(tokens * 10 ** PUMP_DECIMALS)}&slippageBps=1500`,
+    5000,
+  );
+  const sol = Number(j?.outAmount ?? 0) / 1e9;
+  return sol > 0 ? sol / tokens : null;
+}
+
+/** The coin's PumpSwap pair on DexScreener (pool address, liquidity, 5-minute flow). */
+export async function pumpSwapPair(mint: string): Promise<DexPair | null> {
+  const pairs = await getJson<DexPair[]>(`https://api.dexscreener.com/tokens/v1/solana/${mint}`);
+  return pairs?.find((p) => p.dexId === "pumpswap" && p.quoteToken.address === WSOL) ?? null;
 }
 
 /* ---------------- Winner sources for discovery ---------------- */

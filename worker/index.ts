@@ -5,12 +5,17 @@
  * Deploy this on an always-on host (VPS / Railway / Fly). The Next.js dashboard can live on Vercel.
  */
 import "dotenv/config";
+process.env.COINBIT_ROLE = "worker";
 import { config } from "../lib/config";
 import { db, getKv, log, setKv } from "../lib/db";
-import { runDiscovery } from "../lib/discovery";
+import { runDiscovery, vetMore } from "../lib/discovery";
+import { sweepEmptyTokenAccounts } from "../lib/executor";
+import { startMigrationStrategy } from "../lib/migration";
+import { allModes } from "../lib/modes";
+import { liveFeedCount } from "../lib/pricefeed";
 import { managePositions } from "../lib/positions";
 import { notify } from "../lib/telegram";
-import { syncSubscriptions, watchingCount } from "./listener";
+import { listenerHealth, syncSubscriptions, watchingCount } from "./listener";
 
 function every(ms: number, name: string, fn: () => Promise<unknown>) {
   let busy = false;
@@ -44,8 +49,11 @@ async function main() {
     console.error("Set HELIUS_API_KEY (or SOLANA_RPC_URL + SOLANA_WSS_URL) in .env");
     process.exit(1);
   }
-  await log("worker", `starting in ${config.mode.toUpperCase()} mode`);
-  await notify(`🤖 Coinbit worker started — <b>${config.mode.toUpperCase()}</b> mode`);
+  const modes = await allModes();
+  const summary = `copy trading ${modes.copy.toUpperCase()}, migration ${modes.migration.toUpperCase()}`;
+  await log("worker", `starting: ${summary}`);
+  await notify(`🤖 Coinbit worker started — ${summary}`);
+  startMigrationStrategy();
 
   // Discovery: checked every minute, runs when due or when requested from the dashboard.
   every(60_000, "discovery", async () => {
@@ -55,9 +63,23 @@ async function main() {
     }
   });
   every(120_000, "listener", syncSubscriptions);
+  // Vet more candidates' full trade history between discovery runs, so the watchlist keeps growing.
+  every(10 * 60_000, "vetting", async () => {
+    const r = await vetMore();
+    if (r?.vetted) await syncSubscriptions();
+  });
+  sweepEmptyTokenAccounts().catch((e) => log("trade", `rent sweep failed: ${(e as Error).message}`));
   every(10_000, "positions", managePositions);
   every(30_000, "heartbeat", async () => {
-    await setKv("worker:heartbeat", JSON.stringify({ at: new Date().toISOString(), watching: watchingCount(), mode: config.mode }));
+    await setKv("worker:heartbeat", JSON.stringify({
+        at: new Date().toISOString(),
+        watching: watchingCount(),
+        mode: config.mode,
+        modes: await allModes(),
+        canTradeLive: !!config.traderKey,
+        liveFeeds: liveFeedCount(),
+        ...listenerHealth(),
+      }));
   });
 }
 
