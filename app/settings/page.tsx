@@ -3,6 +3,7 @@ import { PageHeader } from "../components/ui";
 import SettingsForm from "./form";
 
 export const dynamic = "force-dynamic";
+export const metadata = { title: "Settings" };
 
 export default async function Settings() {
   const [eff, overrides] = await Promise.all([effectiveSettings(), getOverrides()]);

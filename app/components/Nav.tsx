@@ -23,7 +23,7 @@ const nav = [
   ["/settings", "Settings", SlidersHorizontal],
 ] as const;
 
-type Status = { online: boolean; paused: boolean; at: string | null };
+type Status = { online: boolean; paused: boolean; at: string | null; openCount: number };
 
 const statusOf = (s: Status) =>
   !s.online
@@ -94,6 +94,14 @@ function SidebarBody({ status, path }: { status: Status; path: string }) {
                 className={active ? "text-accent" : ""}
               />
               {label}
+              {href === "/positions" && status.openCount > 0 && (
+                <span
+                  className={`num ml-auto rounded-md px-1.5 text-[11px] ${active ? "bg-accent/15 text-link" : "bg-raised text-mute"}`}
+                  title={`${status.openCount} open`}
+                >
+                  {status.openCount}
+                </span>
+              )}
             </Link>
           );
         })}

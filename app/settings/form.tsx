@@ -48,6 +48,15 @@ export default function SettingsForm({
   const [busy, setBusy] = useState(false);
   const dirty = defs.filter((d) => draft[d.key] !== initial[d.key]);
   const isOverridden = new Set(overridden);
+  const slug = (g: string) => "s-" + g.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+
+  // Warn before closing or reloading the tab with unsaved edits.
+  useEffect(() => {
+    if (!dirty.length) return;
+    const warn = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty.length]);
 
   const run = async (fn: () => Promise<void>, ok: string) => {
     setBusy(true);
@@ -70,8 +79,20 @@ export default function SettingsForm({
 
   return (
     <div className="space-y-5 pb-20">
+      <nav className="flex flex-wrap gap-1.5" aria-label="Setting groups">
+        {groups.map((g) => {
+          const n = defs.filter((d) => d.group === g && draft[d.key] !== initial[d.key]).length;
+          return (
+            <a key={g} href={`#${slug(g)}`} className="btn btn-sm text-mute">
+              {g}
+              {n > 0 && <span className="num rounded bg-warn/15 px-1 text-[10.5px] text-warn">{n}</span>}
+            </a>
+          );
+        })}
+      </nav>
       {groups.map((g) => (
-        <Panel key={g} title={g}>
+        <div key={g} id={slug(g)} className="scroll-mt-20 md:scroll-mt-6">
+        <Panel title={g}>
           <div className="divide-y divide-line">
             {defs
               .filter((d) => d.group === g)
@@ -131,6 +152,7 @@ export default function SettingsForm({
               })}
           </div>
         </Panel>
+        </div>
       ))}
 
       <div className="sticky bottom-4 z-10 flex justify-end">

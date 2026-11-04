@@ -6,6 +6,7 @@ import { Empty, PageHeader, Panel, Stat, StatGrid } from "../components/ui";
 import { PositionsTable } from "./table";
 
 export const dynamic = "force-dynamic";
+export const metadata = { title: "Positions" };
 
 export default async function Positions() {
   const [open, closed] = await Promise.all([

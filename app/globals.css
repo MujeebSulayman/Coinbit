@@ -26,6 +26,7 @@
     background: var(--color-bg);
     color: var(--color-ink);
     color-scheme: dark;
+    scroll-behavior: smooth;
   }
   body {
     font-family: var(--font-sans);
@@ -38,6 +39,14 @@
   }
   ::selection {
     background: color-mix(in srgb, var(--color-accent) 35%, transparent);
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+  tr:focus-visible {
+    outline-offset: -2px;
   }
   * {
     scrollbar-width: thin;
@@ -156,7 +165,9 @@
     background: var(--color-raised);
   }
   th.act,
-  td.act {
+  td.act,
+  th.r,
+  td.r {
     text-align: right;
   }
   .num {
@@ -181,6 +192,22 @@
 }
 .live-dot {
   animation: pulse-dot 2s ease-in-out infinite;
+}
+
+/* Loading placeholders */
+@keyframes shimmer {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+.skeleton {
+  background: var(--color-raised);
+  border-radius: 6px;
+  animation: shimmer 1.4s ease-in-out infinite;
 }
 
 @keyframes fade-in {
@@ -210,10 +237,14 @@
   animation: drawer-in 0.22s cubic-bezier(0.2, 0.9, 0.3, 1);
 }
 @media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
   .fade-in,
   .sheet-in,
   .toast-in,
   .drawer-in,
+  .skeleton,
   .live-dot {
     animation: none;
   }

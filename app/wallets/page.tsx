@@ -4,9 +4,11 @@ import { ago, sol, tone } from "@/lib/fmt";
 import AutoRefresh from "../components/AutoRefresh";
 import type { Wallet as WalletRow } from "@/generated/prisma/client";
 import { Button } from "../components/Controls";
+import CopyButton from "../components/CopyButton";
 import { Addr, Badge, Empty, PageHeader, Panel, Tabs } from "../components/ui";
 
 export const dynamic = "force-dynamic";
+export const metadata = { title: "Wallets" };
 
 const TABS = [
   ["WATCHING", "Watching"],
@@ -111,6 +113,7 @@ export default async function Wallets({
                         a={w.address}
                         href={`https://gmgn.ai/sol/address/${w.address}`}
                       />
+                      <CopyButton text={w.address} label="Copy wallet address" />
                       <Badge kind={w.kind === "LAUNCHER" ? "warn" : "accent"}>
                         {w.kind === "LAUNCHER" ? "Launcher" : "Trader"}
                       </Badge>
@@ -183,6 +186,7 @@ export default async function Wallets({
                         a={w.address}
                         href={`https://gmgn.ai/sol/address/${w.address}`}
                       />
+                      <CopyButton text={w.address} label="Copy wallet address" />
                       {w.allowed && (
                         <span className="ml-2">
                           <Badge>allowed manually</Badge>

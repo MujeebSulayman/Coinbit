@@ -7,11 +7,18 @@ import { clock } from "@/lib/time";
 import { stopLevel } from "@/lib/positions";
 import { effectiveSettings } from "@/lib/settings";
 import AutoRefresh from "../../components/AutoRefresh";
+import CopyButton from "../../components/CopyButton";
 import PriceChart, { type FillPt, type RefLine } from "../../components/PriceChart";
 import { Addr, Badge, Panel, Stat, StatGrid } from "../../components/ui";
 import { CloseButton, StrategyTag } from "../table";
 
 export const dynamic = "force-dynamic";
+
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
+  const id = Number((await params).id);
+  const p = Number.isInteger(id) ? await db.position.findUnique({ where: { id }, select: { symbol: true, mint: true } }) : null;
+  return { title: p ? `${p.symbol ?? p.mint.slice(0, 8)} · Trade #${id}` : "Trade not found" };
+}
 
 type Ladder = { gainPct: number; sellPct: number }[];
 const pct = (v: number | null | undefined, signed = true) =>
@@ -111,7 +118,10 @@ export default async function TradePage({ params }: { params: Promise<{ id: stri
               )}
               <StrategyTag p={p} />
             </div>
-            <div className="mono break-all text-[11.5px] text-faint">{p.mint}</div>
+            <div className="flex items-center gap-1">
+              <span className="mono break-all text-[11.5px] text-faint">{p.mint}</span>
+              <CopyButton text={p.mint} label="Copy mint address" />
+            </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <ExtLink href={`https://pump.fun/coin/${p.mint}`}>pump.fun</ExtLink>
@@ -259,7 +269,10 @@ export default async function TradePage({ params }: { params: Promise<{ id: stri
                   const w = wallets.find((x) => x.address === a);
                   return (
                     <div key={a} className="flex items-center justify-between gap-3 px-4 py-2.5 text-[12.5px]">
-                      <Addr a={a} href={`https://gmgn.ai/sol/address/${a}`} />
+                      <span className="flex items-center gap-0.5">
+                        <Addr a={a} href={`https://gmgn.ai/sol/address/${a}`} />
+                        <CopyButton text={a} label="Copy wallet address" />
+                      </span>
                       <span className="num text-faint">
                         {w?.histTokens != null ? `${((w.histWinRate ?? 0) * 100).toFixed(0)}% win · ${sol(w.histPnlSol ?? 0, true)}` : w?.kind === "LAUNCHER" ? "launcher" : "—"}
                       </span>

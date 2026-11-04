@@ -1,7 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { GeistMono } from "geist/font/mono";
 import { GeistSans } from "geist/font/sans";
-import { getKv } from "@/lib/db";
+import { db, getKv } from "@/lib/db";
 import { DialogProvider } from "./components/Dialog";
 import Nav from "./components/Nav";
 import "./globals.css";
@@ -9,18 +9,22 @@ import "./globals.css";
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-  title: "Coinbit — smart wallet copy-trader",
+  title: { default: "Coinbit — smart wallet copy-trader", template: "%s · Coinbit" },
   description: "Automatic smart-wallet discovery and copy trading for pump.fun",
 };
 export const viewport: Viewport = { width: "device-width", initialScale: 1, themeColor: "#08090b" };
 
 async function workerStatus() {
-  const [hb, paused] = await Promise.all([getKv("worker:heartbeat"), getKv("trading:paused")]);
+  const [hb, paused, openCount] = await Promise.all([
+    getKv("worker:heartbeat"),
+    getKv("trading:paused"),
+    db.position.count({ where: { status: "OPEN" } }).catch(() => 0),
+  ]);
   let at: string | null = null;
   try {
     at = hb ? (JSON.parse(hb) as { at: string }).at : null;
   } catch {}
-  return { online: !!at && Date.now() - new Date(at).getTime() < 90_000, paused: paused === "true", at };
+  return { online: !!at && Date.now() - new Date(at).getTime() < 90_000, paused: paused === "true", at, openCount };
 }
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {

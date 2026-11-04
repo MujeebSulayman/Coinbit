@@ -5,6 +5,7 @@ import AutoRefresh from "../components/AutoRefresh";
 import { Badge, Empty, PageHeader, Panel, Stat, StatGrid } from "../components/ui";
 
 export const dynamic = "force-dynamic";
+export const metadata = { title: "Performance" };
 
 const STRATS = [
   ["copy", "Copy trading"],

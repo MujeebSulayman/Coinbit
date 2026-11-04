@@ -3,6 +3,7 @@ import { config } from "@/lib/config";
 import { db } from "@/lib/db";
 import { ago, usd } from "@/lib/fmt";
 import AutoRefresh from "../components/AutoRefresh";
+import { CardLink, RowLink } from "../components/RowLink";
 import {
   Addr,
   Badge,
@@ -15,6 +16,7 @@ import {
 } from "../components/ui";
 
 export const dynamic = "force-dynamic";
+export const metadata = { title: "Signals" };
 
 const TABS = [
   ["all", "All"],
@@ -27,6 +29,10 @@ const DECISIONS = [
   ["TAKEN", "Taken"],
   ["SKIPPED", "Skipped"],
 ] as const;
+
+type RowProps = { href: string; children: React.ReactNode; className?: string };
+const PlainTr = ({ children, className }: RowProps) => <tr className={className}>{children}</tr>;
+const PlainLi = ({ children, className }: RowProps) => <li className={className}>{children}</li>;
 
 const ret = (v: number | null) =>
   v == null ? (
@@ -84,8 +90,10 @@ export default async function Signals({
         {signals.length ? (
           <>
             <ul className="divide-y divide-line md:hidden">
-              {signals.map((g) => (
-                <li key={g.id} className="space-y-2 px-4 py-3.5">
+              {signals.map((g) => {
+                const Item = g.positionId ? CardLink : PlainLi;
+                return (
+                <Item key={g.id} href={`/positions/${g.positionId}`} className={`space-y-2 px-4 py-3.5 ${g.positionId ? "hover:bg-raised" : ""}`}>
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
@@ -167,8 +175,9 @@ export default async function Signals({
                       </span>
                     ))}
                   </div>
-                </li>
-              ))}
+                </Item>
+                );
+              })}
             </ul>
             <table className="hidden md:table">
               <thead>
@@ -188,8 +197,10 @@ export default async function Signals({
                 </tr>
               </thead>
               <tbody>
-                {signals.map((g) => (
-                  <tr key={g.id}>
+                {signals.map((g) => {
+                  const Row = g.positionId ? RowLink : PlainTr;
+                  return (
+                  <Row key={g.id} href={`/positions/${g.positionId}`}>
                     <td>
                       <div className="flex items-center gap-2">
                         <Coin mint={g.mint} symbol={g.symbol} href={g.positionId ? `/positions/${g.positionId}` : undefined} />
@@ -253,8 +264,9 @@ export default async function Signals({
                     <td className="num">{ret(g.ret15)}</td>
                     <td className="num">{ret(g.ret60)}</td>
                     <td className="text-faint">{ago(g.createdAt)}</td>
-                  </tr>
-                ))}
+                  </Row>
+                  );
+                })}
               </tbody>
             </table>
           </>
