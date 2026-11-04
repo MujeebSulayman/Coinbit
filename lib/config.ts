@@ -131,9 +131,20 @@ export const config = {
   launchRequireProvenDev: bool(env.LAUNCH_REQUIRE_PROVEN_DEV, false), // creator graduated a coin before
   launchSlippagePct: num(env.LAUNCH_SLIPPAGE_PCT, 25),
   launchPriorityFeeSol: num(env.LAUNCH_PRIORITY_FEE_SOL, 0.0005),
-  launchTpLevels: parseTpLevels(env.LAUNCH_TAKE_PROFIT_LEVELS ?? "50:50,100:25,200:25"),
-  launchStopLossPct: num(env.LAUNCH_STOP_LOSS_PCT, 20),
-  launchMaxHoldMin: num(env.LAUNCH_MAX_HOLD_MIN, 5),
+  // "Drafter" entry: watch each candidate's curve after launch and buy only into real demand.
+  launchWatchSec: num(env.LAUNCH_WATCH_SEC, 60), // give up on a coin if demand hasn't shown by then
+  launchMaxWatching: num(env.LAUNCH_MAX_WATCHING, 40), // coins watched at once (one or two subscriptions each)
+  launchFlowBlocks: num(env.LAUNCH_FLOW_BLOCKS, 10), // demand window (1 block ≈ 0.4s)
+  launchMinInflowSol: num(env.LAUNCH_MIN_INFLOW_SOL, 5), // net SOL bought within the window
+  launchMinBuyBlocks: num(env.LAUNCH_MIN_BUY_BLOCKS, 4), // blocks with net buying within the window
+  launchMaxCurveSol: num(env.LAUNCH_MAX_CURVE_SOL, 85), // curve's virtual SOL (starts at 30, completes ~115)
+  launchRequireDevSold: bool(env.LAUNCH_REQUIRE_DEV_SOLD, false), // only buy after the creator has sold
+  launchPaperDelayMs: num(env.LAUNCH_PAPER_DELAY_MS, 1200), // paper fills at the curve this long after the trigger (≈ live landing time)
+  // Exit: a sell ladder timed in blocks after the buy, "block:sell%" (all of it out within ~10s).
+  launchSellLadder: parseTpLevels(env.LAUNCH_SELL_LADDER ?? "1:20,5:15,10:15,15:15,20:15,25:20"),
+  launchExitOnDevSell: bool(env.LAUNCH_EXIT_ON_DEV_SELL, true), // sell everything the moment the creator sells
+  launchStopLossPct: num(env.LAUNCH_STOP_LOSS_PCT, 20), // the drafter dumped everything at 0.8×
+  launchMaxHoldMin: num(env.LAUNCH_MAX_HOLD_MIN, 1), // safety net behind the ladder
 
   telegramToken: env.TELEGRAM_BOT_TOKEN ?? "",
   telegramChatId: env.TELEGRAM_CHAT_ID ?? "",

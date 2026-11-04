@@ -129,6 +129,14 @@ export const SETTINGS: SettingDef[] = [
   d(GROUPS[9], "stagnantMin", "STAGNANT_MIN", "Stagnation exit after", "int", "Sell a position that has gone nowhere for this long (before any take-profit). 0 = off.", { unit: "min", min: 0, max: 1440 }),
   d(GROUPS[9], "stagnantBandPct", "STAGNANT_BAND_PCT", "…“nowhere” means within", "num", "Never up this much, and still within ± this of entry.", { unit: "%", min: 1, max: 100 }),
 
+  d(GROUPS[10], "launchMinInflowSol", "LAUNCH_MIN_INFLOW_SOL", "Min inflow", "num", "Buy only when at least this much SOL (net of sells) went into the curve within the window.", { unit: "SOL", min: 0, max: 100, step: 0.5 }),
+  d(GROUPS[10], "launchFlowBlocks", "LAUNCH_FLOW_BLOCKS", "…within", "int", "The demand window. One block is about 0.4 seconds.", { unit: "blocks", min: 2, max: 150 }),
+  d(GROUPS[10], "launchMinBuyBlocks", "LAUNCH_MIN_BUY_BLOCKS", "Min buying blocks", "int", "Blocks in the window where the curve gained SOL: broad buying, not one big wallet.", { min: 1, max: 150 }),
+  d(GROUPS[10], "launchMaxCurveSol", "LAUNCH_MAX_CURVE_SOL", "Max curve SOL at entry", "num", "Don't buy a coin whose curve is already this far along (starts at 30 SOL, completes near 115).", { unit: "SOL", min: 30, max: 115 }),
+  d(GROUPS[10], "launchRequireDevSold", "LAUNCH_REQUIRE_DEV_SOLD", "Only after the creator sold", "bool", "Wait until the creator has sold: the coin can't be dumped by them on us. Fewer trades."),
+  d(GROUPS[10], "launchWatchSec", "LAUNCH_WATCH_SEC", "Watch each coin for", "int", "Stop watching a coin if demand hasn't shown up by then.", { unit: "sec", min: 5, max: 600 }),
+  d(GROUPS[10], "launchMaxWatching", "LAUNCH_MAX_WATCHING", "Max coins watched", "int", "Coins watched at once. Each costs one or two live subscriptions.", { min: 1, max: 200 }),
+  d(GROUPS[10], "launchPaperDelayMs", "LAUNCH_PAPER_DELAY_MS", "Paper fill delay", "int", "Paper buys fill at the curve this long after the trigger, about how long a live buy takes to land.", { unit: "ms", min: 0, max: 10_000 }),
   d(GROUPS[10], "launchMaxPerHour", "LAUNCH_MAX_PER_HOUR", "Max buys per hour", "int", "pump.fun sees ~30,000 launches a day; this caps how many the sniper buys in any rolling hour.", { min: 1, max: 500 }),
   d(GROUPS[10], "launchMinDevBuySol", "LAUNCH_MIN_DEV_BUY_SOL", "Min dev buy", "num", "The creator's own buy in the launch transaction.", { unit: "SOL", min: 0, max: 100, step: 0.01 }),
   d(GROUPS[10], "launchMaxDevBuySol", "LAUNCH_MAX_DEV_BUY_SOL", "Max dev buy", "num", "Skip coins whose creator bought more than this at launch (a big bag to dump).", { unit: "SOL", min: 0, max: 100, step: 0.1 }),
@@ -136,9 +144,10 @@ export const SETTINGS: SettingDef[] = [
   d(GROUPS[10], "launchRequireProvenDev", "LAUNCH_REQUIRE_PROVEN_DEV", "Proven devs only", "bool", "Only buy if the creator has graduated a coin before (from our own history, so few qualify at first)."),
   d(GROUPS[10], "launchSlippagePct", "LAUNCH_SLIPPAGE_PCT", "Slippage", "num", "Max slippage on sniper buys and sells. New coins move fast.", { unit: "%", min: 1, max: 99 }),
   d(GROUPS[10], "launchPriorityFeeSol", "LAUNCH_PRIORITY_FEE_SOL", "Priority fee", "num", "Per sniper transaction. Higher lands sooner.", { unit: "SOL", min: 0, max: 0.1, step: 0.0001 }),
-  d(GROUPS[10], "launchTpLevels", "LAUNCH_TAKE_PROFIT_LEVELS", "Take-profit ladder", "ladder", "gain%:sell% steps for sniper trades."),
-  d(GROUPS[10], "launchStopLossPct", "LAUNCH_STOP_LOSS_PCT", "Stop-loss", "num", "Sell everything at this loss (before the first take-profit).", { unit: "%", min: 1, max: 95, step: 1 }),
-  d(GROUPS[10], "launchMaxHoldMin", "LAUNCH_MAX_HOLD_MIN", "Time limit", "int", "Close after this long regardless. Most launches are decided in minutes.", { unit: "min", min: 1, max: 1440 }),
+  d(GROUPS[10], "launchSellLadder", "LAUNCH_SELL_LADDER", "Sell ladder", "ladder", "block:sell% steps timed from the buy (1 block ≈ 0.4s). The default sells 20% one block in, then 15% every ~2 seconds, all out by block 25 (~10s)."),
+  d(GROUPS[10], "launchExitOnDevSell", "LAUNCH_EXIT_ON_DEV_SELL", "Exit when the creator sells", "bool", "Sell everything the moment the creator sells. Early creator dumps caused most sniper losses in the research."),
+  d(GROUPS[10], "launchStopLossPct", "LAUNCH_STOP_LOSS_PCT", "Stop-loss", "num", "Sell everything at this loss.", { unit: "%", min: 1, max: 95, step: 1 }),
+  d(GROUPS[10], "launchMaxHoldMin", "LAUNCH_MAX_HOLD_MIN", "Time limit", "int", "Safety net behind the sell ladder.", { unit: "min", min: 1, max: 1440 }),
 ];
 
 const byKey = new Map(SETTINGS.map((s) => [s.key as string, s]));

@@ -173,7 +173,8 @@ export const stopLevel = (p: { tpHit: number; peakPriceSol: number; entryPriceSo
 export function exitRules(strategy: string) {
   if (strategy === "migration")
     return { stopLossPct: config.migrationStopLossPct, maxHoldMin: config.migrationMaxHoldMin, tpLevels: config.migrationTpLevels };
-  if (strategy === "launch") return { stopLossPct: config.launchStopLossPct, maxHoldMin: config.launchMaxHoldMin, tpLevels: config.launchTpLevels };
+  // Launch sniper: no gain-based take-profits; it sells on a block-timed ladder (scheduleSellLadder).
+  if (strategy === "launch") return { stopLossPct: config.launchStopLossPct, maxHoldMin: config.launchMaxHoldMin, tpLevels: [] };
   return { stopLossPct: config.stopLossPct, maxHoldMin: config.maxHoldMin, tpLevels: config.tpLevels };
 }
 
@@ -213,7 +214,9 @@ async function checkExits(id: number, price: number) {
       }
     }
 
-    const { stopPct, stopKind } = stopLevel(p, rules.stopLossPct);
+    // Launch positions count sell-ladder legs in tpHit; those aren't take-profits, so the stop stays at
+    // its 0.8× level instead of jumping to break-even after the first leg.
+    const { stopPct, stopKind } = stopLevel(p.strategy === "launch" ? { ...p, tpHit: 0 } : p, rules.stopLossPct);
     if (gainPct <= stopPct) {
       // Require consecutive readings below the stop so a single wick doesn't trigger it.
       const n = (belowStop.get(id) ?? 0) + 1;
@@ -286,6 +289,39 @@ function onInsiderDump(id: number, d: InsiderDump) {
   );
 }
 
+const SLOT_MS = 400;
+const ladders = new Set<number>(); // launch positions with their sell ladder scheduled
+
+/**
+ * Launch sniper exit: sells `sellPct`% of the original bag at each `block` after the buy, on a timer
+ * (not on price updates, which can be seconds apart). Timed from openedAt, so after a worker restart
+ * any overdue legs fire at once. The last leg closes the position. A leg that collides with another
+ * sell in flight retries shortly, so none is skipped.
+ */
+export function scheduleSellLadder(p: Position) {
+  if (p.strategy !== "launch" || p.status !== "OPEN" || ladders.has(p.id)) return;
+  ladders.add(p.id);
+  const legs = config.launchSellLadder;
+  const start = p.openedAt.getTime();
+  legs.forEach((leg, i) => {
+    if (i < p.tpHit) return; // already done before a restart
+    const run = async (attempt: number): Promise<void> => {
+      const cur = await db.position.findUnique({ where: { id: p.id } });
+      if (!cur || cur.status !== "OPEN") return void ladders.delete(p.id);
+      if (cur.tpHit > i) return; // this leg already ran
+      const last = i === legs.length - 1;
+      const updated = await sellPart(cur, (cur.tokenAmount * leg.sellPct) / 100, cur.currentPriceSol, `sell ladder ${i + 1}/${legs.length} (block +${leg.gainPct})`, last);
+      if (!updated) {
+        if (attempt < 20) setTimeout(() => void run(attempt + 1).catch(() => {}), 250);
+        return;
+      }
+      if (updated.status === "OPEN") await db.position.update({ where: { id: p.id }, data: { tpHit: { increment: 1 } } });
+      else ladders.delete(p.id);
+    };
+    setTimeout(() => void run(0).catch((e) => log("trade", `sell ladder leg failed on ${p.id}: ${(e as Error).message}`)), Math.max(0, start + leg.gainPct * SLOT_MS - Date.now()));
+  });
+}
+
 /** Starts live price feeds for any new open positions right away, instead of on the next 10s poll
  *  (the launch sniper's trades are decided in seconds). */
 export async function watchOpenPositions() {
@@ -302,6 +338,7 @@ export async function managePositions() {
   const q = await quotes([...new Set(open.map((p) => p.mint))]);
 
   for (const p of open) {
+    scheduleSellLadder(p); // no-op unless it's a launch position without its ladder (e.g. after a restart)
     const manual = await getKv(`close:${p.id}`);
     if (manual) {
       await db.kv.delete({ where: { key: `close:${p.id}` } }).catch(() => {});

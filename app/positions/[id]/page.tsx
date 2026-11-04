@@ -61,10 +61,11 @@ export default async function TradePage({ params }: { params: Promise<{ id: stri
   const launch = p.strategy === "launch";
   const prefix = migration ? "migration" : launch ? "launch" : "";
   const key = (k: string) => (prefix ? prefix + k[0].toUpperCase() + k.slice(1) : k);
-  const ladder = v[key("tpLevels")] as Ladder;
+  const ladder = (launch ? [] : v[key("tpLevels")]) as Ladder;
+  const sellLadder = (launch ? v.launchSellLadder : []) as Ladder; // gainPct = blocks after the buy
   const stopLossPct = Number(v[key("stopLossPct")]);
   const maxHoldMin = Number(v[key("maxHoldMin")]);
-  const stop = stopLevel(p, stopLossPct, {
+  const stop = stopLevel(launch ? { ...p, tpHit: 0 } : p, stopLossPct, {
     breakevenAfterTp: !!v.breakevenAfterTp,
     breakevenBufferPct: Number(v.breakevenBufferPct),
     trailAfterTpPct: Number(v.trailAfterTpPct),
@@ -79,6 +80,7 @@ export default async function TradePage({ params }: { params: Promise<{ id: stri
   const peak = (p.peakPriceSol / p.entryPriceSol - 1) * 100;
   const held = (p.closedAt ?? new Date()).getTime() - p.openedAt.getTime();
   const nextTp = ladder?.[p.tpHit];
+  const nextLeg = sellLadder[p.tpHit];
   const closesAt = new Date(p.openedAt.getTime() + maxHoldMin * 60_000);
 
   const refs: RefLine[] = [{ pct: 0, label: "entry", kind: "entry" }];
@@ -146,7 +148,11 @@ export default async function TradePage({ params }: { params: Promise<{ id: stri
         <Stat label="Size" value={<Money v={p.sizeSol} stack />} sub={p.mode === "LIVE" ? "real SOL" : "paper"} />
         <Stat label="Realized" value={<Money v={p.realizedSol} stack />} sub={`${fills.filter((f) => f.side === "SELL").length} sells`} />
         <Stat label="Still held" value={open ? <Money v={value} stack /> : "—"} sub={open ? `${((p.remainingTokens / p.tokenAmount) * 100).toFixed(0)}% of bag` : "sold"} />
-        <Stat label="Take-profits" value={`${p.tpHit} / ${ladder?.length ?? 0}`} sub={nextTp ? `next +${nextTp.gainPct}%` : "all hit"} />
+        {launch ? (
+          <Stat label="Sell ladder" value={`${p.tpHit} / ${sellLadder.length}`} sub={nextLeg ? `next at block +${nextLeg.gainPct}` : "done"} />
+        ) : (
+          <Stat label="Take-profits" value={`${p.tpHit} / ${ladder?.length ?? 0}`} sub={nextTp ? `next +${nextTp.gainPct}%` : "all hit"} />
+        )}
         <Stat label={open ? "Held for" : "Held"} value={duration(held)} sub={open ? `time exit ${ago(closesAt).replace(" ago", "")}` : `closed ${ago(p.closedAt)}`} />
       </StatGrid>
 
@@ -247,6 +253,20 @@ export default async function TradePage({ params }: { params: Promise<{ id: stri
                   </span>
                 </div>
               )}
+              {sellLadder.map((l, i) => (
+                <div key={`leg${i}`} className="flex items-center justify-between px-4 py-2.5">
+                  <span className={i < p.tpHit ? "text-faint line-through" : "text-mute"}>
+                    Sell {l.sellPct}% at block +{l.gainPct}
+                  </span>
+                  <span className="num text-faint">≈{(l.gainPct * 0.4).toFixed(1)}s{i < p.tpHit ? " ✓" : ""}</span>
+                </div>
+              ))}
+              {launch && v.launchExitOnDevSell ? (
+                <div className="flex items-center justify-between px-4 py-2.5">
+                  <span className="text-mute">Creator sells</span>
+                  <span>sell everything</span>
+                </div>
+              ) : null}
               {ladder?.map((l, i) => (
                 <div key={i} className="flex items-center justify-between px-4 py-2.5">
                   <span className={i < p.tpHit ? "text-faint line-through" : "text-mute"}>

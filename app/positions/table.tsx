@@ -15,7 +15,7 @@ function derive(p: Position) {
     pnlPct: p.sizeSol ? (pnl / p.sizeSol) * 100 : 0,
     gain: (p.currentPriceSol / p.entryPriceSol - 1) * 100,
     open: p.status === "OPEN",
-    levels: (p.strategy === "migration" ? config.migrationTpLevels : p.strategy === "launch" ? config.launchTpLevels : config.tpLevels).length,
+    levels: (p.strategy === "migration" ? config.migrationTpLevels : p.strategy === "launch" ? config.launchSellLadder : config.tpLevels).length,
   };
 }
 
