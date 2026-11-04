@@ -35,9 +35,21 @@ const statusOf = (s: Status) =>
 function Logo() {
   return (
     <Link href="/" className="flex items-center gap-2.5">
-      <span className="grid size-7 place-items-center rounded-lg bg-gradient-to-br from-accent to-[#5b63d6] text-[13px] font-bold text-white shadow-[0_0_20px_-4px] shadow-accent/60">
-        C
-      </span>
+      {/* Same mark as app/icon.svg: coin-edge "C" with a trade line breaking out */}
+      <svg viewBox="0 0 32 32" className="size-7 rounded-lg shadow-[0_0_20px_-4px] shadow-accent/60" aria-hidden>
+        <defs>
+          <linearGradient id="logo-g" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
+            <stop offset="0" stopColor="#9aa1ff" />
+            <stop offset="1" stopColor="#5b63d6" />
+          </linearGradient>
+        </defs>
+        <rect width="32" height="32" rx="8" fill="url(#logo-g)" />
+        <g fill="none" stroke="#fff" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M21.7 9.7A8.5 8.5 0 1 0 21.7 22.3" opacity=".9" />
+          <path d="M10.5 20.5l3.5-3.5 3 2.5 6-6" />
+          <path d="M19.5 13.5h3.5v3.5" />
+        </g>
+      </svg>
       <span className="text-[15px] font-semibold tracking-tight">Coinbit</span>
     </Link>
   );
