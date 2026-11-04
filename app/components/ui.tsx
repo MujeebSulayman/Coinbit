@@ -38,16 +38,18 @@ export function Panel({
   right,
   children,
   className = "",
+  bodyClassName = "",
 }: {
   title: ReactNode;
   count?: number;
   right?: ReactNode;
   children: ReactNode;
   className?: string;
+  bodyClassName?: string;
 }) {
   return (
     <section
-      className={`min-w-0 overflow-hidden rounded-xl border border-line bg-panel ${className}`}
+      className={`flex min-w-0 flex-col overflow-hidden rounded-xl border border-line bg-panel ${className}`}
     >
       <header className="flex h-11 items-center justify-between gap-3 border-b border-line px-4">
         <h2 className="flex items-center gap-2 text-[13px] font-medium">
@@ -60,7 +62,7 @@ export function Panel({
         </h2>
         {right}
       </header>
-      <div className="overflow-x-auto">{children}</div>
+      <div className={`overflow-x-auto ${bodyClassName}`}>{children}</div>
     </section>
   );
 }

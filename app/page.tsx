@@ -367,6 +367,7 @@ export default async function Overview() {
 
         <Panel
           className="lg:col-span-2"
+          bodyClassName="relative min-h-0 flex-1 lg:min-h-[360px]"
           title={
             <span className="flex items-center gap-2">
               <ScrollText size={14} className="text-faint" /> Bot log
@@ -374,7 +375,7 @@ export default async function Overview() {
           }
         >
           {logs.length ? (
-            <div className="mono max-h-[360px] overflow-y-auto bg-bg/40 px-4 sm:max-h-[460px] py-3 text-[11.5px] leading-[1.7]">
+            <div className="mono max-h-[360px] overflow-y-auto bg-bg/40 px-4 py-3 text-[11.5px] leading-[1.7] sm:max-h-[460px] lg:absolute lg:inset-0 lg:max-h-none">
               {logs.map((l) => (
                 <div
                   key={l.id}
