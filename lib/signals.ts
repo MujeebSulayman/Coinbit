@@ -141,6 +141,7 @@ export async function checkToken(mint: string) {
 
   let skip: string | null = null;
   if (!q || q.priceSol <= 0) skip = "no price";
+  else if (q.nonStandard) skip = "non-standard curve (not SOL-quoted)";
   else if (q.mcapUsd > config.maxEntryMcapUsd) skip = `mcap $${Math.round(q.mcapUsd).toLocaleString()} too high`;
   else if (ageUnknown) skip = "age unknown (history lookup failed)";
   else if (ageMin === null || ageMin > config.maxTokenAgeMin) skip = `too old (${ageMin === null ? "1000+ txs" : `${Math.round(ageMin)}m`})`;

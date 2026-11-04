@@ -51,3 +51,21 @@ test("curve check uses vSol × vTok from real launches (2026-11-04)", async () =
   assert.equal(curveCheck({ vSolInBondingCurve: 30.03, vTokensInBondingCurve: 1071766851, is_mayhem_mode: true }, { vSol: 4.29, vTok: 1071766851, complete: false }), "mayhem-mode coin");
   assert.equal(curveCheck({ vSolInBondingCurve: 30, vTokensInBondingCurve: 1073000000 }, null), "curve not readable yet");
 });
+
+test("decodeBondingCurve flags curves that aren't SOL-quoted (2026-11 fake-gain bug)", async () => {
+  const { decodeBondingCurve } = await import("../lib/solana");
+  const buf = (vSolLamports: bigint, vTokRaw: bigint, complete = false) => {
+    const b = Buffer.alloc(81);
+    b.writeBigUInt64LE(vTokRaw, 8);
+    b.writeBigUInt64LE(vSolLamports, 16);
+    b.writeBigUInt64LE(793_100_000_000_000n, 24);
+    b.writeBigUInt64LE(0n, 32);
+    b.writeBigUInt64LE(1_000_000_000_000_000n, 40);
+    b[48] = complete ? 1 : 0;
+    return b;
+  };
+  assert.equal(decodeBondingCurve(buf(30_000_000_000n, 1_073_000_000_000_000n))!.standard, true); // fresh
+  assert.equal(decodeBondingCurve(buf(32_000_000_000n, 1_005_937_500_000_000n))!.standard, true); // after buys, same k
+  assert.equal(decodeBondingCurve(buf(760_854_059_297n, 1_073_000_000_000_000n))!.standard, false); // ~25× k
+  assert.equal(decodeBondingCurve(buf(0n, 0n, true))!.standard, true); // completed: priced elsewhere
+});

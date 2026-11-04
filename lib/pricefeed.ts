@@ -57,7 +57,7 @@ async function open(positionId: number, mint: string, onPrice: (id: number, pric
   const curve = bondingCurvePda(mint);
   const info = await conn().getAccountInfo(curve, "confirmed");
   const bc = info && info.owner.equals(PUMP_PROGRAM) ? decodeBondingCurve(info.data as Buffer) : null;
-  if (!info || !bc || bc.complete) {
+  if (!info || !bc || bc.complete || !bc.standard) {
     noCurve.add(positionId); // migrated / not a pump curve: the 10s poll handles it
     return;
   }

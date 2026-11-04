@@ -128,7 +128,14 @@ export type BondingCurve = {
   creator: string | null; // present on current-layout curves (offset 49)
   priceSol: number; // SOL per 1 whole token
   progressPct: number; // share of the sellable supply already bought off the curve
+  /** A standard SOL-quoted curve (or a completed one). Other curves (quoted in another asset, or with
+   *  different virtual reserves) can't be priced in SOL from their reserves: 2026-11 paper trades on
+   *  them showed fake gains of up to +2,000%. */
+  standard: boolean;
 };
+
+/** vSol × vTok (SOL × whole tokens) of every standard pump.fun curve: 30 SOL × 1.073B tokens. */
+export const STD_CURVE_K = 30 * 1_073_000_000;
 
 export function decodeBondingCurve(data: Buffer): BondingCurve | null {
   if (data.length < 49) return null;
@@ -151,6 +158,7 @@ export function decodeBondingCurve(data: Buffer): BondingCurve | null {
     creator,
     progressPct: complete ? 100 : Math.max(0, Math.min(100, (1 - Number(rTok) / INITIAL_REAL_TOKEN_RESERVES) * 100)),
     priceSol,
+    standard: complete || Math.abs(((Number(vSol) / 1e9) * (Number(vTok) / 10 ** PUMP_DECIMALS)) / STD_CURVE_K - 1) <= 0.02,
   };
 }
 
