@@ -5,7 +5,7 @@ import { db } from "@/lib/db";
 import { ago, tone, usd } from "@/lib/fmt";
 import { Money } from "../../components/Money";
 import { clock } from "@/lib/time";
-import { stopLevel } from "@/lib/positions";
+import { stopLevel } from "@/lib/exits";
 import { effectiveSettings } from "@/lib/settings";
 import AutoRefresh from "../../components/AutoRefresh";
 import CopyButton from "../../components/CopyButton";
@@ -58,13 +58,18 @@ export default async function TradePage({ params }: { params: Promise<{ id: stri
   // The worker's settings (what's actually in force), not this server's environment.
   const v = eff.values as Record<string, unknown>;
   const migration = p.strategy === "migration";
-  const ladder = (migration ? v.migrationTpLevels : v.tpLevels) as Ladder;
-  const stopLossPct = Number(migration ? v.migrationStopLossPct : v.stopLossPct);
-  const maxHoldMin = Number(migration ? v.migrationMaxHoldMin : v.maxHoldMin);
+  const launch = p.strategy === "launch";
+  const prefix = migration ? "migration" : launch ? "launch" : "";
+  const key = (k: string) => (prefix ? prefix + k[0].toUpperCase() + k.slice(1) : k);
+  const ladder = v[key("tpLevels")] as Ladder;
+  const stopLossPct = Number(v[key("stopLossPct")]);
+  const maxHoldMin = Number(v[key("maxHoldMin")]);
   const stop = stopLevel(p, stopLossPct, {
     breakevenAfterTp: !!v.breakevenAfterTp,
     breakevenBufferPct: Number(v.breakevenBufferPct),
     trailAfterTpPct: Number(v.trailAfterTpPct),
+    profitLockArmPct: Number(v.profitLockArmPct ?? 0),
+    profitLockKeepPct: Number(v.profitLockKeepPct ?? 55),
   });
 
   const open = p.status === "OPEN";
@@ -101,7 +106,7 @@ export default async function TradePage({ params }: { params: Promise<{ id: stri
 
   return (
     <>
-      {open && <AutoRefresh ms={3000} />}
+      {open && <AutoRefresh ms={launch ? 1500 : 3000} />}
       <div className="space-y-3">
         <Link href="/positions" className="inline-flex items-center gap-1.5 text-[12.5px] text-faint hover:text-ink">
           <ArrowLeft size={14} /> Positions
@@ -283,7 +288,7 @@ export default async function TradePage({ params }: { params: Promise<{ id: stri
               </div>
             ) : (
               <div className="px-4 py-6 text-center text-[13px] text-faint">
-                {migration ? "Migration trade: triggered by the graduation, not by wallets." : "—"}
+                {migration ? "Migration trade: triggered by the graduation, not by wallets." : launch ? "Launch snipe: triggered by the coin's creation." : "—"}
               </div>
             )}
           </Panel>

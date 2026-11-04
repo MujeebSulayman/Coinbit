@@ -46,6 +46,18 @@ You don't add wallets by hand. The discovery engine hunts for them.
    - It also enforces a daily loss limit, which pauses trading when hit.
 6. **Feedback loop**: every closed trade's PnL is credited to the wallets that triggered it, so bad wallets sink and good ones rise.
 
+Two more strategies run alongside copy trading, each with its own Off / Paper / Live switch on the Overview page:
+
+- **Migration**: buys pump.fun coins ~7 minutes after they graduate to PumpSwap, if the pool holds $13K+ of liquidity, buyers outnumber sellers after pump.fun's BOOST window, and the price hasn't moved more than 5% while the checks ran (it re-quotes just before buying).
+- **Launch sniper** (off by default): buys new pump.fun coins moments after creation. The decision runs in memory with no network call. Before buying, it reads the bonding curve and only trades standard SOL-quoted curves. Live buys go through PumpPortal's Local Transaction API (0.5% fee), and every buy logs how many blocks after the launch it landed. It isn't same-block sniping: that needs a paid Geyser/shred stream.
+
+On top of each strategy's take-profit ladder, stop-loss and time limit, every position has:
+- **Profit lock**: once it's up 10%, it keeps 55% of the peak gain.
+- **Quote-shock exit**: if the price drops 20% within 10 seconds, it sells straight away after a fresh sell quote confirms the drop.
+- **Stagnation exit**: it sells a position that has gone nowhere after 10 minutes.
+
+Paper buys fill at a fresh executable quote, so paper PnL tracks what live trading would get.
+
 ## Setup
 
 ```bash

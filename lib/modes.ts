@@ -1,16 +1,17 @@
 /**
  * Per-strategy trading mode: off | paper | live. Defaults come from .env (TRADING_MODE for copy
- * trading, MIGRATION_MODE for the migration strategy); the dashboard can override them at runtime.
+ * trading, MIGRATION_MODE for migration, LAUNCH_MODE for the launch sniper); the dashboard can override them at runtime.
  */
 import { config, type StrategyMode } from "./config";
 import { getKv, log, setKv } from "./db";
 
-export const STRATEGIES = ["copy", "migration"] as const;
+export const STRATEGIES = ["copy", "migration", "launch"] as const;
 export type Strategy = (typeof STRATEGIES)[number];
 
 const defaults: Record<Strategy, StrategyMode> = {
   copy: config.mode,
   migration: config.migrationMode,
+  launch: config.launchMode,
 };
 
 const cache = new Map<Strategy, { v: StrategyMode; at: number }>();
@@ -48,5 +49,5 @@ export async function setStrategyMode(s: Strategy, m: StrategyMode) {
 }
 
 export async function allModes(): Promise<Record<Strategy, StrategyMode>> {
-  return { copy: await strategyMode("copy"), migration: await strategyMode("migration") };
+  return { copy: await strategyMode("copy"), migration: await strategyMode("migration"), launch: await strategyMode("launch") };
 }

@@ -2,12 +2,13 @@
 import type { Position } from "@/generated/prisma/client";
 import { config } from "./config";
 import { db, getKv, log, setKv } from "./db";
-import { buy, type ExecMode, sell, traderAddress } from "./executor";
+import { buy, type ExecMode, type FastFill, type Fill, sell, traderAddress } from "./executor";
 import { type InsiderDump, syncInsiderWatch } from "./insiders";
 import type { Strategy } from "./modes";
 import { jupSellPrice, quotes } from "./market";
 import { flowStats, syncPriceFeeds } from "./pricefeed";
 import { notify, short } from "./telegram";
+import { isStagnant, quoteShock, stopLevel as stopLevelPure } from "./exits";
 import { startOfDay } from "./time";
 
 export async function isPaused() {
@@ -28,7 +29,7 @@ export async function riskBlock(mint: string, strategy: Strategy = "copy"): Prom
   if (await isPaused()) return "trading paused";
   const open = await db.position.findMany({ where: { status: "OPEN" }, select: { mint: true, strategy: true } });
   if (open.some((p) => p.mint === mint)) return "already holding";
-  const cap = strategy === "migration" ? config.migrationMaxOpen : config.maxOpenPositions;
+  const cap = strategy === "migration" ? config.migrationMaxOpen : strategy === "launch" ? config.launchMaxOpen : config.maxOpenPositions;
   if (open.filter((p) => p.strategy === strategy).length >= cap) return "max open positions";
   const pnl = await todaysPnlSol();
   if (pnl <= -config.dailyLossLimitSol) {
@@ -48,9 +49,16 @@ export async function openPosition(opts: {
   mode: ExecMode;
   sizeSol?: number;
   pool?: string | null;
+  /** Launch sniper: a live buy prepared on the fast path (see prepareBuyFast), or a curve-computed paper fill. */
+  sendLive?: () => Promise<FastFill>;
+  paperTokens?: number;
+  onFill?: (f: Fill & { slot?: number | null }) => void;
 }): Promise<Position | null> {
   const strategy = opts.strategy ?? "copy";
-  const fill = await buy(opts.mint, opts.sizeSol ?? config.positionSizeSol, opts.priceSol, opts.mode);
+  const size = opts.sizeSol ?? config.positionSizeSol;
+  const fill =
+    opts.sendLive && opts.mode === "live" ? await opts.sendLive() : await buy(opts.mint, size, opts.priceSol, opts.mode, opts.paperTokens);
+  opts.onFill?.(fill);
   if (fill.tokens <= 0) return null;
   const entry = fill.sol / fill.tokens;
   const p = await db.position.create({
@@ -75,7 +83,8 @@ export async function openPosition(opts: {
   });
   await db.pricePoint.create({ data: { positionId: p.id, priceSol: entry } });
   await log("trade", `BUY ${opts.symbol ?? opts.mint} ${fill.sol} SOL (${strategy}, ${p.mode})`);
-  const why = strategy === "migration" ? "Graduated to PumpSwap" : `Wallets: ${opts.triggerWallets.map(short).join(", ")}`;
+  const why =
+    strategy === "migration" ? "Graduated to PumpSwap" : strategy === "launch" ? "Launch snipe" : `Wallets: ${opts.triggerWallets.map(short).join(", ")}`;
   await notify(
     `🟢 <b>BUY ${opts.symbol ?? short(opts.mint)}</b> [${strategy} · ${p.mode}]\n${fill.sol} SOL @ ${entry.toExponential(3)}\n${why}\nhttps://pump.fun/coin/${opts.mint}`,
   );
@@ -100,7 +109,7 @@ async function sellPart(stale: Position, tokens: number, priceSol: number, reaso
 
 async function doSell(p: Position, tokens: number, priceSol: number, reason: string, close: boolean) {
   tokens = Math.min(tokens, p.remainingTokens);
-  const fill = await sell(p.mint, tokens, priceSol, close, p.mode === "LIVE" ? "live" : "paper");
+  const fill = await sell(p.mint, tokens, priceSol, close, p.mode === "LIVE" ? "live" : "paper", p.strategy === "launch");
   if (fill.empty) reason = `${reason} (wallet held no tokens)`;
   const remaining = close || fill.empty ? 0 : p.remainingTokens - fill.tokens;
   const realized = p.realizedSol + fill.sol;
@@ -155,42 +164,21 @@ export async function closePosition(id: number, reason: string) {
 const checking = new Set<number>(); // positions whose exit rules are being evaluated
 const belowStop = new Map<number, number>(); // consecutive price readings below the stop
 const lastSample = new Map<number, number>(); // last price-history sample per position
+const recentPrices = new Map<number, { t: number; p: number }[]>(); // short window for the quote-shock exit
 
-/** Stop level (as % vs entry): the hard stop-loss until the first take-profit; after it, the higher of
- *  break-even (+buffer) and a trailing stop below the peak, so a winner can't turn into a loser. */
-type StopCfg = Pick<typeof config, "breakevenAfterTp" | "breakevenBufferPct" | "trailAfterTpPct">;
+/** Stop level for the trade page and the exit check (see lib/exits). */
+export const stopLevel = (p: { tpHit: number; peakPriceSol: number; entryPriceSol: number }, stopLossPct: number) =>
+  stopLevelPure(p, stopLossPct, config);
 
-export function stopLevel(
-  p: { tpHit: number; peakPriceSol: number; entryPriceSol: number },
-  stopLossPct: number,
-  cfg: StopCfg = config,
-) {
-  let stopPct = -stopLossPct;
-  let stopKind = "stop-loss";
-  if (p.tpHit >= 1) {
-    if (cfg.breakevenAfterTp && cfg.breakevenBufferPct > stopPct) {
-      stopPct = cfg.breakevenBufferPct;
-      stopKind = "break-even";
-    }
-    if (cfg.trailAfterTpPct > 0) {
-      const trail = ((p.peakPriceSol * (1 - cfg.trailAfterTpPct / 100)) / p.entryPriceSol - 1) * 100;
-      if (trail > stopPct) {
-        stopPct = trail;
-        stopKind = "trailing stop";
-      }
-    }
-  }
-  return { stopPct, stopKind };
+export function exitRules(strategy: string) {
+  if (strategy === "migration")
+    return { stopLossPct: config.migrationStopLossPct, maxHoldMin: config.migrationMaxHoldMin, tpLevels: config.migrationTpLevels };
+  if (strategy === "launch") return { stopLossPct: config.launchStopLossPct, maxHoldMin: config.launchMaxHoldMin, tpLevels: config.launchTpLevels };
+  return { stopLossPct: config.stopLossPct, maxHoldMin: config.maxHoldMin, tpLevels: config.tpLevels };
 }
 
-function exitRules(strategy: string) {
-  return strategy === "migration"
-    ? { stopLossPct: config.migrationStopLossPct, maxHoldMin: config.migrationMaxHoldMin, tpLevels: config.migrationTpLevels }
-    : { stopLossPct: config.stopLossPct, maxHoldMin: config.maxHoldMin, tpLevels: config.tpLevels };
-}
-
-/** Applies stop-loss / time exit / take-profit ladder at `price`. Re-reads the position so concurrent
- *  triggers (poll + live feed) never act on a stale take-profit level. */
+/** Applies the exit rules at `price`. Re-reads the position so concurrent triggers (poll + live feed)
+ *  never act on a stale take-profit level. Order: quote shock → stop → momentum fade → time → stagnation → take-profit. */
 async function checkExits(id: number, price: number) {
   if (checking.has(id) || price <= 0) return;
   checking.add(id);
@@ -206,9 +194,24 @@ async function checkExits(id: number, price: number) {
       lastSample.set(id, Date.now());
       await db.pricePoint.create({ data: { positionId: id, priceSol: price } });
     }
+    const now = Date.now();
     const gainPct = (price / p.entryPriceSol - 1) * 100;
-    const heldMin = (Date.now() - p.openedAt.getTime()) / 60_000;
+    const heldMin = (now - p.openedAt.getTime()) / 60_000;
     const rules = exitRules(p.strategy);
+
+    // Quote shock: a sudden collapse from the recent high. Acted on at once (no confirmation reading),
+    // but only if an independent sell quote for our bag confirms it, so a bad feed reading can't trigger it.
+    const window = (recentPrices.get(id) ?? []).filter((x) => now - x.t <= config.quoteShockWindowSec * 1000);
+    const drop = quoteShock(window, now, price, config);
+    recentPrices.set(id, [...window, { t: now, p: price }]);
+    if (drop !== null) {
+      const confirmed = await jupSellPrice(p.mint, p.remainingTokens).catch(() => null);
+      const high = Math.max(...window.map((x) => x.p));
+      if (confirmed && (1 - confirmed / high) * 100 >= config.quoteShockPct) {
+        await sellPart(p, p.remainingTokens, confirmed, `quote shock −${drop.toFixed(0)}% in ${config.quoteShockWindowSec}s`, true);
+        return;
+      }
+    }
 
     const { stopPct, stopKind } = stopLevel(p, rules.stopLossPct);
     if (gainPct <= stopPct) {
@@ -217,6 +220,11 @@ async function checkExits(id: number, price: number) {
       belowStop.set(id, n);
       if (n >= config.stopConfirmTicks) {
         belowStop.delete(id);
+        await sellPart(p, p.remainingTokens, price, `${stopKind} ${gainPct >= 0 ? "+" : ""}${gainPct.toFixed(0)}%`, true);
+      }
+      return;
+    }
+    belowStop.delete(id);
 
     // Momentum fade (after the first take-profit): sellers clearly took over in the last window.
     if (p.tpHit >= 1 && config.momentumExit) {
@@ -232,13 +240,13 @@ async function checkExits(id: number, price: number) {
         return;
       }
     }
-        await sellPart(p, p.remainingTokens, price, `${stopKind} ${gainPct >= 0 ? "+" : ""}${gainPct.toFixed(0)}%`, true);
-      }
-      return;
-    }
-    belowStop.delete(id);
+
     if (heldMin >= rules.maxHoldMin) {
       await sellPart(p, p.remainingTokens, price, `time exit ${Math.round(heldMin)}m`, true);
+      return;
+    }
+    if (isStagnant({ ...p, heldMin, price }, config)) {
+      await sellPart(p, p.remainingTokens, price, `stagnant ${Math.round(heldMin)}m (${gainPct >= 0 ? "+" : ""}${gainPct.toFixed(0)}%)`, true);
       return;
     }
     const level = rules.tpLevels[p.tpHit];
@@ -276,6 +284,13 @@ function onInsiderDump(id: number, d: InsiderDump) {
   closePosition(id, why).catch((e) =>
     log("trade", `insider exit on position ${id} failed: ${(e as Error).message}`),
   );
+}
+
+/** Starts live price feeds for any new open positions right away, instead of on the next 10s poll
+ *  (the launch sniper's trades are decided in seconds). */
+export async function watchOpenPositions() {
+  const open = await db.position.findMany({ where: { status: "OPEN" } });
+  await syncPriceFeeds(open, onLivePrice);
 }
 
 /** Runs every few seconds: polls prices (covers migrated coins), handles manual closes, syncs live feeds. */

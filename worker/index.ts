@@ -10,6 +10,7 @@ import { config } from "../lib/config";
 import { db, getKv, log, setKv } from "../lib/db";
 import { runDiscovery, vetMore } from "../lib/discovery";
 import { sweepEmptyTokenAccounts } from "../lib/executor";
+import { startLaunchStrategy } from "../lib/launch";
 import { startMigrationStrategy } from "../lib/migration";
 import { allModes, strategyMode } from "../lib/modes";
 import { liveFeedCount } from "../lib/pricefeed";
@@ -70,10 +71,11 @@ async function main() {
   setInterval(() => applyOverrides().catch(() => {}), 15_000);
 
   const modes = await allModes();
-  const summary = `copy trading ${modes.copy.toUpperCase()}, migration ${modes.migration.toUpperCase()}`;
+  const summary = `copy trading ${modes.copy.toUpperCase()}, migration ${modes.migration.toUpperCase()}, launch sniper ${modes.launch.toUpperCase()}`;
   await log("worker", `starting: ${summary}`);
   await notify(`🤖 Coinbit worker started — ${summary}`);
   startMigrationStrategy();
+  startLaunchStrategy();
   startLaunchRecorder(); // every pump.fun launch → dev-reputation history
   every(3600_000, "creators", backfillCreators); // graduates recorded before creators were stored
 

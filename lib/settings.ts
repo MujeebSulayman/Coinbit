@@ -42,6 +42,8 @@ export const GROUPS = [
   "Entry filters · copy trading",
   "Entry filters · migration",
   "Discovery & wallet vetting",
+  "Exits · all strategies",
+  "Launch sniper",
 ] as const;
 
 export const SETTINGS: SettingDef[] = [
@@ -49,7 +51,9 @@ export const SETTINGS: SettingDef[] = [
   d(GROUPS[0], "migrationSizeSol", "MIGRATION_SIZE_SOL", "Migration trade size", "num", "SOL per migration trade.", { unit: "SOL", min: 0.001, max: 100, step: 0.01 }),
   d(GROUPS[0], "maxOpenPositions", "MAX_OPEN_POSITIONS", "Max open · copy", "int", "Copy positions open at once.", { min: 1, max: 50 }),
   d(GROUPS[0], "migrationMaxOpen", "MIGRATION_MAX_OPEN", "Max open · migration", "int", "Migration positions open at once.", { min: 1, max: 50 }),
-  d(GROUPS[0], "dailyLossLimitSol", "DAILY_LOSS_LIMIT_SOL", "Daily loss limit", "num", "Trading pauses automatically after losing this much in a day (GMT+1). Shared by both strategies.", { unit: "SOL", min: 0.01, max: 1000, step: 0.1 }),
+  d(GROUPS[0], "launchSizeSol", "LAUNCH_SIZE_SOL", "Launch sniper trade size", "num", "SOL per launch-sniper trade.", { unit: "SOL", min: 0.001, max: 100, step: 0.01 }),
+  d(GROUPS[0], "launchMaxOpen", "LAUNCH_MAX_OPEN", "Max open · launch sniper", "int", "Launch-sniper positions open at once.", { min: 1, max: 50 }),
+  d(GROUPS[0], "dailyLossLimitSol", "DAILY_LOSS_LIMIT_SOL", "Daily loss limit", "num", "Trading pauses automatically after losing this much in a day (GMT+1). Shared by all strategies.", { unit: "SOL", min: 0.01, max: 1000, step: 0.1 }),
 
   d(GROUPS[1], "slippageBps", "SLIPPAGE_BPS", "Slippage", "int", "Max slippage on buys, in basis points (100 = 1%). Sells widen it on retries.", { unit: "bps", min: 50, max: 5000 }),
   d(GROUPS[1], "priorityFeeLamports", "PRIORITY_FEE_LAMPORTS", "Priority fee", "int", "Per transaction, in lamports (1 SOL = 1,000,000,000). Doubles on each sell retry.", { unit: "lamports", min: 0, max: 10_000_000 }),
@@ -96,6 +100,9 @@ export const SETTINGS: SettingDef[] = [
   d(GROUPS[7], "migrationMaxPumpPct", "MIGRATION_MAX_PUMP_PCT", "Max above graduation price", "num", "Skip if it already ran more than this.", { unit: "%", min: 0, max: 10_000 }),
   d(GROUPS[7], "migrationMinBuyRatio", "MIGRATION_MIN_BUY_RATIO", "Min buys ÷ sells", "num", "After the BOOST window.", { min: 0, max: 20, step: 0.1 }),
   d(GROUPS[7], "migrationMinTraders", "MIGRATION_MIN_TRADERS", "Min traders", "int", "Distinct traders after the BOOST window.", { min: 0, max: 1000 }),
+  d(GROUPS[7], "migrationMinLiquidityUsd", "MIGRATION_MIN_LIQUIDITY_USD", "Min liquidity", "int", "Both sides of the pool in USD. Kaiser.charon's 1,146-trade backtest found a ~$13K floor was the only filter that held up in both halves of its data.", { unit: "USD", min: 0, max: 10_000_000 }),
+  d(GROUPS[7], "migrationSkipLongRun", "MIGRATION_SKIP_LONG_RUN", "Skip long-run graduates", "bool", "Coins with 1000+ curve trades before graduating. In our data their median 60-minute return was −51% vs −19% for the rest."),
+  d(GROUPS[7], "migrationMaxQuoteDriftPct", "MIGRATION_MAX_QUOTE_DRIFT_PCT", "Max price move during checks", "num", "The checks take a while: re-quote just before buying and skip if the price moved more than this either way.", { unit: "%", min: 0.5, max: 100, step: 0.5 }),
   d(GROUPS[7], "migrationMinFillMin", "MIGRATION_MIN_FILL_MIN", "Min launch → graduation", "int", "Faster than this = manufactured graduation.", { unit: "min", min: 0, max: 1440 }),
   d(GROUPS[7], "migrationMinSocials", "MIGRATION_MIN_SOCIALS", "Min social links", "int", "Skip unless the coin lists at least this many of X / Telegram / website. 0 = off (still recorded: compare on the Performance page before turning on).", { min: 0, max: 3 }),
   d(GROUPS[7], "migrationRequireProvenDev", "MIGRATION_REQUIRE_PROVEN_DEV", "Proven devs only", "bool", "Only buy if the creator graduated a coin before (but isn't a factory with 5+ graduates) and launched nothing else in the last 7 days. Off = still recorded for the Performance page."),
@@ -114,6 +121,24 @@ export const SETTINGS: SettingDef[] = [
   d(GROUPS[8], "histTxSample", "HIST_TX_SAMPLE", "History sample", "int", "Recent transactions checked per wallet (more = slower, more RPC).", { unit: "txs", min: 20, max: 1000 }),
   d(GROUPS[8], "histPerRun", "HIST_WALLETS_PER_RUN", "Wallets vetted per pass", "int", "Per vetting pass.", { min: 1, max: 200 }),
   d(GROUPS[8], "histRecheckDays", "HIST_RECHECK_DAYS", "Re-vet after", "num", "Days before a wallet's history is checked again.", { unit: "days", min: 0.5, max: 60, step: 0.5 }),
+
+  d(GROUPS[9], "profitLockArmPct", "PROFIT_LOCK_ARM_PCT", "Profit lock arms at", "num", "Once a position has been up this much, a stop follows it so a winner can't turn into a loser. 0 = off.", { unit: "%", min: 0, max: 1000, step: 1 }),
+  d(GROUPS[9], "profitLockKeepPct", "PROFIT_LOCK_KEEP_PCT", "Profit lock keeps", "num", "Share of the peak gain to keep: at 55, a peak of +20% sells the rest at +11%.", { unit: "%", min: 5, max: 95, step: 1 }),
+  d(GROUPS[9], "quoteShockPct", "QUOTE_SHOCK_PCT", "Quote-shock exit", "num", "Sell at once (no confirmation reading) if the price falls this far from its recent high, after a fresh sell quote confirms it. 0 = off.", { unit: "%", min: 0, max: 90, step: 1 }),
+  d(GROUPS[9], "quoteShockWindowSec", "QUOTE_SHOCK_WINDOW_SEC", "…within", "int", "How recent the high must be.", { unit: "sec", min: 2, max: 120 }),
+  d(GROUPS[9], "stagnantMin", "STAGNANT_MIN", "Stagnation exit after", "int", "Sell a position that has gone nowhere for this long (before any take-profit). 0 = off.", { unit: "min", min: 0, max: 1440 }),
+  d(GROUPS[9], "stagnantBandPct", "STAGNANT_BAND_PCT", "…“nowhere” means within", "num", "Never up this much, and still within ± this of entry.", { unit: "%", min: 1, max: 100 }),
+
+  d(GROUPS[10], "launchMaxPerHour", "LAUNCH_MAX_PER_HOUR", "Max buys per hour", "int", "pump.fun sees ~30,000 launches a day; this caps how many the sniper buys in any rolling hour.", { min: 1, max: 500 }),
+  d(GROUPS[10], "launchMinDevBuySol", "LAUNCH_MIN_DEV_BUY_SOL", "Min dev buy", "num", "The creator's own buy in the launch transaction.", { unit: "SOL", min: 0, max: 100, step: 0.01 }),
+  d(GROUPS[10], "launchMaxDevBuySol", "LAUNCH_MAX_DEV_BUY_SOL", "Max dev buy", "num", "Skip coins whose creator bought more than this at launch (a big bag to dump).", { unit: "SOL", min: 0, max: 100, step: 0.1 }),
+  d(GROUPS[10], "launchMaxCreatorLaunches7d", "LAUNCH_MAX_CREATOR_LAUNCHES_7D", "Max creator launches (7d)", "int", "Skip serial launchers: creators with more other coins than this in the last 7 days.", { min: 0, max: 1000 }),
+  d(GROUPS[10], "launchRequireProvenDev", "LAUNCH_REQUIRE_PROVEN_DEV", "Proven devs only", "bool", "Only buy if the creator has graduated a coin before (from our own history, so few qualify at first)."),
+  d(GROUPS[10], "launchSlippagePct", "LAUNCH_SLIPPAGE_PCT", "Slippage", "num", "Max slippage on sniper buys and sells. New coins move fast.", { unit: "%", min: 1, max: 99 }),
+  d(GROUPS[10], "launchPriorityFeeSol", "LAUNCH_PRIORITY_FEE_SOL", "Priority fee", "num", "Per sniper transaction. Higher lands sooner.", { unit: "SOL", min: 0, max: 0.1, step: 0.0001 }),
+  d(GROUPS[10], "launchTpLevels", "LAUNCH_TAKE_PROFIT_LEVELS", "Take-profit ladder", "ladder", "gain%:sell% steps for sniper trades."),
+  d(GROUPS[10], "launchStopLossPct", "LAUNCH_STOP_LOSS_PCT", "Stop-loss", "num", "Sell everything at this loss (before the first take-profit).", { unit: "%", min: 1, max: 95, step: 1 }),
+  d(GROUPS[10], "launchMaxHoldMin", "LAUNCH_MAX_HOLD_MIN", "Time limit", "int", "Close after this long regardless. Most launches are decided in minutes.", { unit: "min", min: 1, max: 1440 }),
 ];
 
 const byKey = new Map(SETTINGS.map((s) => [s.key as string, s]));

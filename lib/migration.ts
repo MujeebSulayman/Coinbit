@@ -128,9 +128,11 @@ async function handleMigration(m: PortalTrade) {
   if (!now) skip = "no swap route";
   else if (sol === null) skip = "pool not found";
   else if (sol < config.migrationMinPoolSol) skip = `pool only ${sol.toFixed(1)} SOL`;
+  else if (sol * 2 * solPrice < config.migrationMinLiquidityUsd) skip = `liquidity only $${((sol * 2 * solPrice) / 1000).toFixed(1)}K`;
   else if (vsGradPct! < -config.migrationMaxDropPct) skip = `${vsGradPct!.toFixed(0)}% vs graduation price after BOOST`;
   else if (vsGradPct! > config.migrationMaxPumpPct) skip = `already +${vsGradPct!.toFixed(0)}% vs graduation price`;
   else if (age.unknown) skip = "age unknown (history lookup failed)";
+  else if (config.migrationSkipLongRun && ageMin === null) skip = "long-run graduate (1000+ curve trades)";
   else if (fillMin !== null && fillMin < config.migrationMinFillMin)
     skip = `graduated ${Math.max(0, fillMin).toFixed(0)}m after launch (manufactured)`;
   else if (holders && holders.identical >= 4) skip = bundledReason(holders);
@@ -158,6 +160,18 @@ async function handleMigration(m: PortalTrade) {
     }
   }
   if (!skip) skip = await riskBlock(mint, "migration");
+
+  // The checks above take a while (often a minute or more), so the first quote is stale by now. Buy at a
+  // fresh one, and skip if the price moved too far either way: falling = it's dumping, rising = chasing.
+  let entry = now;
+  if (!skip) {
+    const fresh = await jupBuyQuote(mint, size);
+    const drift = fresh && now ? (fresh.priceSol / now.priceSol - 1) * 100 : null;
+    if (!fresh || drift === null) skip = "no swap route at buy time";
+    else if (Math.abs(drift) > config.migrationMaxQuoteDriftPct)
+      skip = `price moved ${drift >= 0 ? "+" : ""}${drift.toFixed(0)}% during checks`;
+    else entry = fresh;
+  }
 
   const parts = [
     fillMin !== null ? `graduated ${Math.max(0, fillMin).toFixed(0)}m after launch` : "graduated (long run)",
@@ -199,7 +213,7 @@ async function handleMigration(m: PortalTrade) {
     mode: mode === "live" ? "live" : "paper",
     mint,
     symbol,
-    priceSol: now!.priceSol,
+    priceSol: entry!.priceSol,
     sizeSol: size,
     triggerWallets: smart,
     pool,

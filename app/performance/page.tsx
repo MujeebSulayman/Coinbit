@@ -11,6 +11,7 @@ export const metadata = { title: "Performance" };
 const STRATS = [
   ["copy", "Copy trading"],
   ["migration", "Migration"],
+  ["launch", "Launch sniper"],
 ] as const;
 
 const pct = (v: number | null, signed = true) => (v === null ? "—" : `${signed && v > 0 ? "+" : ""}${Math.round(v) || 0}%`);

@@ -1,7 +1,7 @@
 import { Radar } from "lucide-react";
 import { config } from "@/lib/config";
 import { db } from "@/lib/db";
-import { ago, usd } from "@/lib/fmt";
+import { ago, strategyLabel, usd } from "@/lib/fmt";
 import AutoRefresh from "../components/AutoRefresh";
 import { CardLink, RowLink } from "../components/RowLink";
 import {
@@ -22,6 +22,7 @@ const TABS = [
   ["all", "All"],
   ["copy", "Copy trading"],
   ["migration", "Migration"],
+  ["launch", "Launch sniper"],
 ] as const;
 
 const DECISIONS = [
@@ -99,7 +100,7 @@ export default async function Signals({
                       <div className="flex items-center gap-2">
                         <Coin mint={g.mint} symbol={g.symbol} href={g.positionId ? `/positions/${g.positionId}` : undefined} />
                         <Badge>
-                          {g.strategy === "migration" ? "Migration" : "Copy"}
+                          {strategyLabel(g.strategy)}
                         </Badge>
                       </div>
                       <div className="mt-0.5 truncate pl-8 text-[11.5px] text-faint">
@@ -205,7 +206,7 @@ export default async function Signals({
                       <div className="flex items-center gap-2">
                         <Coin mint={g.mint} symbol={g.symbol} href={g.positionId ? `/positions/${g.positionId}` : undefined} />
                         <Badge>
-                          {g.strategy === "migration" ? "Migration" : "Copy"}
+                          {strategyLabel(g.strategy)}
                         </Badge>
                       </div>
                       <div

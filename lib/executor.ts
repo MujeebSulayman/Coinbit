@@ -22,9 +22,11 @@ import {
 import bs58 from "bs58";
 import { config } from "./config";
 import { log } from "./db";
+import { jupBuyQuote } from "./market";
 import { sleep, solDelta, tokenDeltas, WSOL } from "./solana";
 
 const JUP = "https://lite-api.jup.ag/swap/v1";
+const PORTAL_TRADE = "https://pumpportal.fun/api/trade-local"; // builds a pump.fun / PumpSwap tx for us to sign (0.5% fee)
 const PAPER_FEE_PCT = 1; // approximates pool/curve fees so paper PnL isn't flattering
 const SELL_ATTEMPTS = 3;
 const MAX_SLIPPAGE_BPS = 5000;
@@ -176,6 +178,79 @@ async function swap(inputMint: string, outputMint: string, amountRaw: bigint, sl
   return sendAndConfirm(tx, lastValidBlockHeight);
 }
 
+/* ---------------- fast path (launch sniper) ---------------- */
+
+/** Block height, refreshed in the background so the fast path never waits on it. */
+let height = { v: 0, at: 0 };
+async function blockHeight() {
+  if (Date.now() - height.at > 3000) {
+    const refresh = fast()
+      .getBlockHeight("confirmed")
+      .then((v) => (height = { v, at: Date.now() }));
+    if (!height.v) await refresh; // first call only
+  }
+  return height.v;
+}
+
+/**
+ * PumpPortal's Local Transaction API returns a ready-made pump.fun (or PumpSwap) transaction, so a
+ * buy costs one HTTP round-trip before signing, instead of Jupiter's quote + swap (which may not even
+ * route a coin that is seconds old). We sign locally and send it on every path like any other trade.
+ */
+async function portalSwap(body: Record<string, unknown>) {
+  return sendAndConfirm(await portalTx(body), (await blockHeight()) + 150);
+}
+
+async function portalTx(body: Record<string, unknown>) {
+  const res = await fetch(PORTAL_TRADE, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ publicKey: trader().publicKey.toBase58(), ...body }),
+    signal: AbortSignal.timeout(5000),
+  });
+  if (res.status !== 200) throw new Error(`pumpportal ${res.status}: ${await res.text()}`);
+  const tx = VersionedTransaction.deserialize(new Uint8Array(await res.arrayBuffer()));
+  tx.sign([trader()]);
+  return tx;
+}
+
+export type FastFill = Fill & { slot: number | null };
+
+/**
+ * Launch-sniper buy, in two steps so the caller can check the coin while PumpPortal builds the
+ * transaction: `prepareBuyFast` starts the request right away; `send()` signs and broadcasts it.
+ * Never calling `send()` means nothing is sent (the built transaction is just dropped).
+ */
+export function prepareBuyFast(mint: string, sizeSol: number) {
+  const built = portalTx({
+    action: "buy",
+    mint,
+    amount: sizeSol,
+    denominatedInSol: "true",
+    slippage: config.launchSlippagePct,
+    priorityFee: config.launchPriorityFeeSol,
+    pool: "pump",
+  });
+  built.catch(() => {}); // a dropped build must not surface as an unhandled rejection
+  return {
+    send: async (): Promise<FastFill> => {
+      const sig = await sendAndConfirm(await built, (await blockHeight()) + 150); // a blockhash stays valid ~150 blocks
+      const [fill, st] = await Promise.all([readFill(sig, mint), fast().getSignatureStatuses([sig])]);
+      if (fill.tokens <= 0) throw new Error(`buy ${sig} confirmed but received no tokens`);
+      return { signature: sig, tokens: fill.tokens, sol: -fill.sol, slot: st.value[0]?.slot ?? null };
+    },
+  };
+}
+
+/** Reads one account on the trade-path connection (bypasses the shared RPC rate limiter). */
+export const readAccountFast = (key: PublicKey) => fast().getAccountInfo(key, "confirmed");
+
+/** Slot of a confirmed transaction (e.g. a coin's create tx), or null. */
+export async function txSlot(sig: string): Promise<number | null> {
+  const st = await fast().getSignatureStatuses([sig], { searchTransactionHistory: true }).catch(() => null);
+  return st?.value[0]?.slot ?? null;
+}
+
 /* ---------------- token accounts ---------------- */
 
 type TokenAcct = { pubkey: PublicKey; program: PublicKey; raw: bigint; decimals: number; lamports: number };
@@ -240,10 +315,18 @@ export async function sweepEmptyTokenAccounts() {
 
 export type ExecMode = "paper" | "live";
 
-export async function buy(mint: string, sizeSol: number, priceSol: number, mode: ExecMode): Promise<Fill> {
+/**
+ * Paper buys fill at what you could actually get right now: `paperTokens` when the caller computed an
+ * executable fill itself (the launch sniper, from the bonding curve), otherwise a fresh Jupiter buy
+ * quote. The passed-in price is only a fallback; it can be minutes old (that made paper losses look
+ * worse than live ones: see the 2026-11 trade review).
+ */
+export async function buy(mint: string, sizeSol: number, priceSol: number, mode: ExecMode, paperTokens?: number): Promise<Fill> {
   if (mode === "paper") {
+    if (paperTokens && paperTokens > 0) return { signature: null, tokens: paperTokens, sol: sizeSol };
+    const q = await jupBuyQuote(mint, sizeSol).catch(() => null);
     const net = sizeSol * (1 - PAPER_FEE_PCT / 100);
-    return { signature: null, tokens: priceSol > 0 ? net / priceSol : 0, sol: sizeSol };
+    return { signature: null, tokens: q ? q.tokens * (1 - PAPER_FEE_PCT / 100) : priceSol > 0 ? net / priceSol : 0, sol: sizeSol };
   }
   // Buys get one attempt: if the price ran away, chasing it is worse than missing it.
   const sig = await swap(WSOL, mint, BigInt(Math.floor(sizeSol * 1e9)), config.slippageBps, config.priorityFeeLamports);
@@ -255,7 +338,7 @@ export async function buy(mint: string, sizeSol: number, priceSol: number, mode:
 
 /** Sells `tokens` (or everything held when `all`), retrying with wider slippage and higher fees.
  *  On a full exit the emptied token account is closed and its rent added to the proceeds. */
-export async function sell(mint: string, tokens: number, priceSol: number, all: boolean, mode: ExecMode): Promise<Fill> {
+export async function sell(mint: string, tokens: number, priceSol: number, all: boolean, mode: ExecMode, viaPortal = false): Promise<Fill> {
   if (mode === "paper") {
     return { signature: null, tokens, sol: tokens * priceSol * (1 - PAPER_FEE_PCT / 100) };
   }
@@ -273,7 +356,17 @@ export async function sell(mint: string, tokens: number, priceSol: number, all: 
     const slippage = Math.min(MAX_SLIPPAGE_BPS, config.slippageBps * (attempt + 1));
     const fee = config.priorityFeeLamports * 2 ** attempt;
     try {
-      const sig = await swap(mint, WSOL, amount, slippage, fee);
+      const sig = viaPortal
+        ? await portalSwap({
+            action: "sell",
+            mint,
+            amount: all || amount === raw ? "100%" : Number(amount) / 10 ** decimals,
+            denominatedInSol: "false",
+            slippage: Math.min(99, config.launchSlippagePct * (attempt + 1)),
+            priorityFee: config.launchPriorityFeeSol * 2 ** attempt,
+            pool: "auto", // bonding curve, or PumpSwap if it graduated while we held it
+          })
+        : await swap(mint, WSOL, amount, slippage, fee);
       const fill = await readFill(sig, mint);
       let sol = fill.sol;
       if (amount === raw) sol += await closeEmpty((await tokenAccounts(mint)).filter((a) => a.raw === 0n));

@@ -25,7 +25,7 @@ export async function getStats() {
   const wins = closed.filter((p) => pnl(p) > 0).length;
   const unrealized = open.reduce((s, p) => s + p.realizedSol + p.remainingTokens * p.currentPriceSol - p.sizeSol, 0);
   const byStrategy = Object.fromEntries(
-    (["copy", "migration"] as const).map((st) => {
+    (["copy", "migration", "launch"] as const).map((st) => {
       const c = closed.filter((p) => p.strategy === st);
       const o = open.filter((p) => p.strategy === st);
       return [
@@ -38,7 +38,7 @@ export async function getStats() {
         },
       ];
     }),
-  ) as Record<"copy" | "migration", { realized: number; trades: number; winRate: number; open: number }>;
+  ) as Record<"copy" | "migration" | "launch", { realized: number; trades: number; winRate: number; open: number }>;
   const heartbeat = hb ? (JSON.parse(hb) as { at: string; watching: number; mode: string }) : null;
   return {
     mode: config.mode,

@@ -69,6 +69,13 @@ export const config = {
   momentumWindowSec: num(env.MOMENTUM_WINDOW_SEC, 90),
   momentumSellRatio: num(env.MOMENTUM_SELL_RATIO, 2), // sell SOL ≥ this × buy SOL in the window
   momentumMinTrades: num(env.MOMENTUM_MIN_TRADES, 5), // ...with at least this many trades in the window
+  // Exits for every strategy (on top of each strategy's take-profit ladder, stop-loss and time limit)
+  profitLockArmPct: num(env.PROFIT_LOCK_ARM_PCT, 10), // once the peak gain reaches this... 0 = off
+  profitLockKeepPct: num(env.PROFIT_LOCK_KEEP_PCT, 55), // ...sell the rest if it gives back more than (100 − this)% of it
+  quoteShockPct: num(env.QUOTE_SHOCK_PCT, 20), // sell at once if the price falls this far from its recent high... 0 = off
+  quoteShockWindowSec: num(env.QUOTE_SHOCK_WINDOW_SEC, 10), // ...within this many seconds (confirmed by a fresh sell quote)
+  stagnantMin: num(env.STAGNANT_MIN, 10), // sell a position that has gone nowhere for this long... 0 = off
+  stagnantBandPct: num(env.STAGNANT_BAND_PCT, 10), // ..."nowhere" = never up this much and still within ± this of entry
   maxRoundTripLossPct: num(env.MAX_ROUNDTRIP_LOSS_PCT, 10), // sellability: skip if buy→sell would lose more than this
   maxDevSoldPct: num(env.MAX_DEV_SOLD_PCT, 50), // skip if the creator already sold more than this % of their launch buy
 
@@ -102,6 +109,9 @@ export const config = {
   migrationMinBuyRatio: num(env.MIGRATION_MIN_BUY_RATIO, 1.2), // buys ÷ sells after the BOOST window
   migrationMinTraders: num(env.MIGRATION_MIN_TRADERS, 15), // distinct traders after the BOOST window
   migrationMinSmartWallets: num(env.MIGRATION_MIN_SMART_WALLETS, 0),
+  migrationMinLiquidityUsd: num(env.MIGRATION_MIN_LIQUIDITY_USD, 13_000), // both sides of the pool, in USD
+  migrationSkipLongRun: bool(env.MIGRATION_SKIP_LONG_RUN, true), // 1000+ curve txs before graduating: median −51% at 60m in our data
+  migrationMaxQuoteDriftPct: num(env.MIGRATION_MAX_QUOTE_DRIFT_PCT, 5), // re-quote just before buying; skip if it moved more
   migrationMinFillMin: num(env.MIGRATION_MIN_FILL_MIN, 10), // launch → graduation faster than this = manufactured
   // Research filters, off by default: recorded on every signal and compared on the Performance page first.
   migrationMinSocials: num(env.MIGRATION_MIN_SOCIALS, 0), // of X / Telegram / website; 0 = off
@@ -109,6 +119,21 @@ export const config = {
   migrationTpLevels: parseTpLevels(env.MIGRATION_TAKE_PROFIT_LEVELS ?? "30:50,100:25,200:25"),
   migrationStopLossPct: num(env.MIGRATION_STOP_LOSS_PCT, 25),
   migrationMaxHoldMin: num(env.MIGRATION_MAX_HOLD_MIN, 60),
+
+  // Launch sniper: buys new pump.fun coins seconds after creation (PumpPortal feed + Local Transaction API).
+  launchMode: (["off", "paper", "live"].includes(env.LAUNCH_MODE ?? "") ? env.LAUNCH_MODE : "off") as StrategyMode,
+  launchSizeSol: num(env.LAUNCH_SIZE_SOL, 0.05),
+  launchMaxOpen: num(env.LAUNCH_MAX_OPEN, 3),
+  launchMaxPerHour: num(env.LAUNCH_MAX_PER_HOUR, 20), // buys per rolling hour (pump.fun sees ~30k launches a day)
+  launchMinDevBuySol: num(env.LAUNCH_MIN_DEV_BUY_SOL, 0), // creator's own buy in the create tx
+  launchMaxDevBuySol: num(env.LAUNCH_MAX_DEV_BUY_SOL, 5), // big dev bags are dump risk
+  launchMaxCreatorLaunches7d: num(env.LAUNCH_MAX_CREATOR_LAUNCHES_7D, 3), // serial launchers: other coins in 7 days
+  launchRequireProvenDev: bool(env.LAUNCH_REQUIRE_PROVEN_DEV, false), // creator graduated a coin before
+  launchSlippagePct: num(env.LAUNCH_SLIPPAGE_PCT, 25),
+  launchPriorityFeeSol: num(env.LAUNCH_PRIORITY_FEE_SOL, 0.0005),
+  launchTpLevels: parseTpLevels(env.LAUNCH_TAKE_PROFIT_LEVELS ?? "50:50,100:25,200:25"),
+  launchStopLossPct: num(env.LAUNCH_STOP_LOSS_PCT, 20),
+  launchMaxHoldMin: num(env.LAUNCH_MAX_HOLD_MIN, 5),
 
   telegramToken: env.TELEGRAM_BOT_TOKEN ?? "",
   telegramChatId: env.TELEGRAM_CHAT_ID ?? "",

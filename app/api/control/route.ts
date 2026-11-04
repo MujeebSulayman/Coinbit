@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 /**
  * Dashboard actions. The worker picks these up from the Kv table:
  *  pause | resume | discover | close (positionId) | exclude (address) | unexclude (address)
- *  setMode (strategy: copy|migration, mode: off|paper|live)
+ *  setMode (strategy: copy|migration|launch, mode: off|paper|live)
  *  setSettings (values: { key: value }) | resetSetting (key) | resetAllSettings
  */
 export async function POST(req: Request) {

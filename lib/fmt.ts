@@ -28,3 +28,7 @@ export const usdAmt = (v: number, signed = false) => {
   const body = a >= 1e6 ? `${(a / 1e6).toFixed(2)}M` : a >= 1e4 ? `${(a / 1e3).toFixed(1)}K` : a.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   return `${sign}$${body}`;
 };
+
+/** Display names for each strategy (Position.strategy / Signal.strategy). */
+export const STRATEGY_LABEL: Record<string, string> = { copy: "Copy", migration: "Migration", launch: "Launch sniper" };
+export const strategyLabel = (s: string) => STRATEGY_LABEL[s] ?? s;

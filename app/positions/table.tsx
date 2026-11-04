@@ -1,6 +1,6 @@
 import type { Position } from "@/generated/prisma/client";
 import { config } from "@/lib/config";
-import { ago, tone } from "@/lib/fmt";
+import { ago, strategyLabel, tone } from "@/lib/fmt";
 import { Money } from "../components/Money";
 import { Button } from "../components/Controls";
 import { CardLink, RowLink } from "../components/RowLink";
@@ -15,10 +15,7 @@ function derive(p: Position) {
     pnlPct: p.sizeSol ? (pnl / p.sizeSol) * 100 : 0,
     gain: (p.currentPriceSol / p.entryPriceSol - 1) * 100,
     open: p.status === "OPEN",
-    levels: (p.strategy === "migration"
-      ? config.migrationTpLevels
-      : config.tpLevels
-    ).length,
+    levels: (p.strategy === "migration" ? config.migrationTpLevels : p.strategy === "launch" ? config.launchTpLevels : config.tpLevels).length,
   };
 }
 
@@ -61,7 +58,7 @@ export function CloseButton({ p }: { p: Position }) {
 export const StrategyTag = ({ p }: { p: Position }) => (
   <span className="flex items-center gap-2">
     <span className="text-mute">
-      {p.strategy === "migration" ? "Migration" : "Copy"}
+      {strategyLabel(p.strategy)}
     </span>
     <Badge kind={p.mode === "LIVE" ? "warn" : "mute"}>
       {p.mode === "LIVE" ? "Live" : "Paper"}

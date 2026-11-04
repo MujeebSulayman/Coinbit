@@ -41,6 +41,11 @@ const STRATS = [
     "Migration",
     "Buys graduations to PumpSwap that hold up after the first minute.",
   ],
+  [
+    "launch",
+    "Launch sniper",
+    "Buys brand-new pump.fun coins moments after launch, skipping serial launchers and big dev bags.",
+  ],
 ] as const;
 
 /** Cumulative realized PnL per closed trade, thinned to ~400 points for the chart. */
@@ -233,7 +238,7 @@ export default async function Overview() {
       </StatGrid>
 
       {/* Strategies */}
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
         {STRATS.map(([key, name, desc]) => {
           const m = s.modes[key];
           const st = s.byStrategy[key];
