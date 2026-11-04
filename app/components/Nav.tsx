@@ -13,6 +13,7 @@ import {
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
+import { useSolPrice } from "./Money";
 
 const nav = [
   ["/", "Overview", LayoutDashboard],
@@ -69,6 +70,16 @@ function Dot({ status }: { status: Status }) {
   );
 }
 
+function SolPrice() {
+  const price = useSolPrice();
+  if (price == null) return null;
+  return (
+    <div className="pl-4 text-[11px] text-faint" title="SOL/USD, refreshed about every minute">
+      SOL <span className="num text-mute">${price.toFixed(2)}</span>
+    </div>
+  );
+}
+
 function SidebarBody({ status, path }: { status: Status; path: string }) {
   const isActive = (href: string) =>
     href === "/" ? path === "/" : path.startsWith(href);
@@ -115,6 +126,7 @@ function SidebarBody({ status, path }: { status: Status; path: string }) {
           <Activity size={11} />
           pump.fun · Solana
         </div>
+        <SolPrice />
       </div>
     </>
   );

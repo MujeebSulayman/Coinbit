@@ -2,7 +2,8 @@ import { ArrowLeft, ExternalLink } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
-import { ago, sol, tone, usd } from "@/lib/fmt";
+import { ago, tone, usd } from "@/lib/fmt";
+import { Money } from "../../components/Money";
 import { clock } from "@/lib/time";
 import { stopLevel } from "@/lib/positions";
 import { effectiveSettings } from "@/lib/settings";
@@ -134,12 +135,12 @@ export default async function TradePage({ params }: { params: Promise<{ id: stri
       </div>
 
       <StatGrid cols="grid-cols-2 md:grid-cols-4 lg:grid-cols-8">
-        <Stat label="PnL" value={sol(pnl, true)} className={tone(pnl)} sub={pct(p.sizeSol ? (pnl / p.sizeSol) * 100 : 0)} />
+        <Stat label="PnL" value={<Money v={pnl} signed stack />} className={tone(pnl)} sub={pct(p.sizeSol ? (pnl / p.sizeSol) * 100 : 0)} />
         <Stat label={open ? "Price now" : "Last price"} value={pct(move)} className={tone(move)} sub="vs entry" />
         <Stat label="Peak" value={pct(peak)} className={tone(peak)} sub="best price seen" />
-        <Stat label="Size" value={sol(p.sizeSol)} sub={p.mode === "LIVE" ? "real SOL" : "paper"} />
-        <Stat label="Realized" value={sol(p.realizedSol)} sub={`${fills.filter((f) => f.side === "SELL").length} sells`} />
-        <Stat label="Still held" value={open ? sol(value) : "—"} sub={open ? `${((p.remainingTokens / p.tokenAmount) * 100).toFixed(0)}% of bag` : "sold"} />
+        <Stat label="Size" value={<Money v={p.sizeSol} stack />} sub={p.mode === "LIVE" ? "real SOL" : "paper"} />
+        <Stat label="Realized" value={<Money v={p.realizedSol} stack />} sub={`${fills.filter((f) => f.side === "SELL").length} sells`} />
+        <Stat label="Still held" value={open ? <Money v={value} stack /> : "—"} sub={open ? `${((p.remainingTokens / p.tokenAmount) * 100).toFixed(0)}% of bag` : "sold"} />
         <Stat label="Take-profits" value={`${p.tpHit} / ${ladder?.length ?? 0}`} sub={nextTp ? `next +${nextTp.gainPct}%` : "all hit"} />
         <Stat label={open ? "Held for" : "Held"} value={duration(held)} sub={open ? `time exit ${ago(closesAt).replace(" ago", "")}` : `closed ${ago(p.closedAt)}`} />
       </StatGrid>
@@ -190,7 +191,7 @@ export default async function TradePage({ params }: { params: Promise<{ id: stri
                       <tr key={f.id}>
                         <td className="num text-faint">{clock(f.ts)}</td>
                         <td>{f.side === "BUY" ? <Badge>Buy</Badge> : <Badge kind={at !== null && at < 0 ? "down" : "up"}>Sell</Badge>}</td>
-                        <td className="num r">{f.side === "BUY" ? "−" : "+"}{f.sol.toFixed(4)}</td>
+                        <td className="num r"><Money v={f.side === "BUY" ? -f.sol : f.sol} signed /></td>
                         <td className={`num r ${at === null ? "text-faint" : tone(at)}`}>{at === null ? "—" : pct(at)}</td>
                         <td className="text-mute">{f.reason}</td>
                         <td>
@@ -274,7 +275,7 @@ export default async function TradePage({ params }: { params: Promise<{ id: stri
                         <CopyButton text={a} label="Copy wallet address" />
                       </span>
                       <span className="num text-faint">
-                        {w?.histTokens != null ? `${((w.histWinRate ?? 0) * 100).toFixed(0)}% win · ${sol(w.histPnlSol ?? 0, true)}` : w?.kind === "LAUNCHER" ? "launcher" : "—"}
+                        {w?.histTokens != null ? <>{((w.histWinRate ?? 0) * 100).toFixed(0)}% win · <Money v={w.histPnlSol ?? 0} signed /></> : w?.kind === "LAUNCHER" ? "launcher" : "—"}
                       </span>
                     </div>
                   );

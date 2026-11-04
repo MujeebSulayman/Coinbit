@@ -1,6 +1,7 @@
 import type { Position } from "@/generated/prisma/client";
 import { config } from "@/lib/config";
-import { ago, sol, tone } from "@/lib/fmt";
+import { ago, tone } from "@/lib/fmt";
+import { Money } from "../components/Money";
 import { Button } from "../components/Controls";
 import { CardLink, RowLink } from "../components/RowLink";
 import { Addr, Badge, Coin } from "../components/ui";
@@ -86,7 +87,7 @@ export function PositionsTable({ rows }: { rows: Position[] }) {
                 </div>
                 <div className="text-right">
                   <div className={`num text-[14px] font-medium ${tone(d.pnl)}`}>
-                    {sol(d.pnl, true)}
+                    <Money v={d.pnl} signed />
                   </div>
                   <div
                     className={`num text-[11.5px] ${tone(d.pnl)} opacity-70`}
@@ -97,7 +98,7 @@ export function PositionsTable({ rows }: { rows: Position[] }) {
               </div>
               <div className="flex flex-wrap items-center gap-x-4 gap-y-1 pl-8 text-[12px] text-faint">
                 <span>
-                  Size <span className="num text-mute">{sol(p.sizeSol)}</span>
+                  Size <span className="num text-mute"><Money v={p.sizeSol} /></span>
                 </span>
                 {d.open && (
                   <span>
@@ -156,13 +157,13 @@ export function PositionsTable({ rows }: { rows: Position[] }) {
                 <td>
                   <StrategyTag p={p} />
                 </td>
-                <td className="num text-mute">{sol(p.sizeSol)}</td>
+                <td className="num text-mute"><Money v={p.sizeSol} /></td>
                 <td className={`num ${d.open ? tone(d.gain) :"text-faint"}`}>
                   {d.open ? signedPct(d.gain) : "—"}
                 </td>
                 <td>
                   <div className={`num font-medium ${tone(d.pnl)}`}>
-                    {sol(d.pnl, true)}
+                    <Money v={d.pnl} signed />
                   </div>
                   <div className={`num text-[11px] ${tone(d.pnl)} opacity-70`}>
                     {signedPct(d.pnlPct)}

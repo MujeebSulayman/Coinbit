@@ -1,5 +1,6 @@
 import { CheckCircle2, Hourglass, XCircle } from "lucide-react";
-import { sol, tone } from "@/lib/fmt";
+import { tone } from "@/lib/fmt";
+import { Money } from "../components/Money";
 import { filterTest, MIN_TRADES, shadowReport, strategyPerf } from "@/lib/performance";
 import AutoRefresh from "../components/AutoRefresh";
 import { Badge, Empty, PageHeader, Panel, Stat, StatGrid } from "../components/ui";
@@ -59,8 +60,8 @@ export default async function Performance() {
             </div>
 
             <StatGrid cols="grid-cols-2 md:grid-cols-4">
-              <Stat label="Total PnL" value={sol(m.total, true)} className={tone(m.total)} sub={`${m.trades} closed trades`} />
-              <Stat label="Expectancy" value={sol(m.expectancy, true)} className={tone(m.expectancy)} sub={`${pct(m.expectancyPct)} per trade`} />
+              <Stat label="Total PnL" value={<Money v={m.total} signed stack />} className={tone(m.total)} sub={`${m.trades} closed trades`} />
+              <Stat label="Expectancy" value={<Money v={m.expectancy} signed stack />} className={tone(m.expectancy)} sub={`${pct(m.expectancyPct)} per trade`} />
               <Stat
                 label="Profit factor"
                 value={m.trades ? (Number.isFinite(m.profitFactor) ? m.profitFactor.toFixed(2) : "∞") : "—"}
@@ -68,15 +69,15 @@ export default async function Performance() {
                 sub="won ÷ lost · aim > 1.3"
               />
               <Stat label="Win rate" value={m.trades ? `${(m.winRate * 100).toFixed(0)}%` : "—"} />
-              <Stat label="Avg win" value={m.trades ? sol(m.avgWin, true) : "—"} className={m.trades ? "text-up" : ""} />
-              <Stat label="Avg loss" value={m.trades ? sol(m.avgLoss, true) : "—"} className={m.avgLoss < 0 ? "text-down" : ""} />
+              <Stat label="Avg win" value={m.trades ? <Money v={m.avgWin} signed stack /> : "—"} className={m.trades ? "text-up" : ""} />
+              <Stat label="Avg loss" value={m.trades ? <Money v={m.avgLoss} signed stack /> : "—"} className={m.avgLoss < 0 ? "text-down" : ""} />
               <Stat
                 label="Best trade share"
                 value={m.bestShare === null ? "—" : `${(m.bestShare * 100).toFixed(0)}%`}
                 className={m.bestShare !== null && m.bestShare >= 0.3 ? "text-warn" : ""}
                 sub="of total profit · aim < 30%"
               />
-              <Stat label="Max drawdown" value={sol(m.maxDrawdown)} sub="worst peak-to-trough" />
+              <Stat label="Max drawdown" value={<Money v={m.maxDrawdown} stack />} sub="worst peak-to-trough" />
             </StatGrid>
 
             <div className="grid gap-4 lg:grid-cols-5">
@@ -97,7 +98,7 @@ export default async function Performance() {
                           <td className="num text-mute">{e.n}</td>
                           <td>
                             <span className="inline-flex items-center gap-2">
-                              <span className={`num w-24 ${tone(e.pnl)}`}>{sol(e.pnl, true)}</span>
+                              <span className={`num min-w-24 ${tone(e.pnl)}`}><Money v={e.pnl} signed /></span>
                               <span className="h-1 w-14 overflow-hidden rounded-full bg-line-strong">
                                 <span
                                   className={`block h-full rounded-full ${e.pnl >= 0 ? "bg-up" : "bg-down"}`}

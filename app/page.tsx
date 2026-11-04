@@ -9,7 +9,8 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { db } from "@/lib/db";
-import { ago, sol, tone, usd } from "@/lib/fmt";
+import { ago, tone, usd } from "@/lib/fmt";
+import { Money } from "./components/Money";
 import { getStats } from "@/lib/stats";
 import { clock, TZ_LABEL } from "@/lib/time";
 import AutoRefresh from "./components/AutoRefresh";
@@ -140,19 +141,19 @@ export default async function Overview() {
               <div
                 className={`num mt-1 text-[26px] font-medium leading-none sm:text-[32px] tracking-tight ${tone(total)}`}
               >
-                {sol(total, true)}
+                <Money v={total} signed stack />
               </div>
               <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[12px] text-faint">
                 <span>
                   Realized{" "}
                   <span className={`num ${tone(s.realized)}`}>
-                    {sol(s.realized, true)}
+                    <Money v={s.realized} signed />
                   </span>
                 </span>
                 <span>
                   Open{" "}
                   <span className={`num ${tone(s.unrealized)}`}>
-                    {sol(s.unrealized, true)}
+                    <Money v={s.unrealized} signed />
                   </span>
                 </span>
               </div>
@@ -176,7 +177,7 @@ export default async function Overview() {
         <StatGrid cols="grid-cols-2 lg:grid-cols-1">
           <Stat
             label="Today"
-            value={sol(s.today, true)}
+            value={<Money v={s.today} signed stack />}
             className={tone(s.today)}
             sub={`since 00:00 ${TZ_LABEL}`}
           />
@@ -190,7 +191,7 @@ export default async function Overview() {
             value={s.openCount}
             sub={
               <span className={tone(s.unrealized)}>
-                {sol(s.unrealized, true)} unrealized
+                <Money v={s.unrealized} signed /> unrealized
               </span>
             }
           />
@@ -250,7 +251,7 @@ export default async function Overview() {
                     [
                       "Realized",
                       <span key="r" className={tone(st.realized)}>
-                        {sol(st.realized, true)}
+                        <Money v={st.realized} signed />
                       </span>,
                     ],
                     ["Trades", st.trades],

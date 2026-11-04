@@ -1,6 +1,7 @@
 import { ArrowLeftRight, History } from "lucide-react";
 import { db } from "@/lib/db";
-import { sol, tone } from "@/lib/fmt";
+import { tone } from "@/lib/fmt";
+import { Money } from "../components/Money";
 import AutoRefresh from "../components/AutoRefresh";
 import { Empty, PageHeader, Panel, Stat, StatGrid } from "../components/ui";
 import { PositionsTable } from "./table";
@@ -24,9 +25,9 @@ export default async function Positions() {
       <PageHeader title="Positions" description="Every trade, its exits, and the wallets that triggered it." />
 
       <StatGrid>
-        <Stat label="Open" value={open.length} sub={`${sol(deployed)} deployed`} />
-        <Stat label="Open PnL" value={sol(openPnl, true)} className={tone(openPnl)} />
-        <Stat label="Last 100 closed" value={sol(recentPnl, true)} className={tone(recentPnl)} sub={`${closed.length} trades`} />
+        <Stat label="Open" value={open.length} sub={<><Money v={deployed} /> deployed</>} />
+        <Stat label="Open PnL" value={<Money v={openPnl} signed stack />} className={tone(openPnl)} />
+        <Stat label="Last 100 closed" value={<Money v={recentPnl} signed stack />} className={tone(recentPnl)} sub={`${closed.length} trades`} />
         <Stat label="Win rate · last 100" value={closed.length ? `${((recentWins / closed.length) * 100).toFixed(0)}%` : "—"} />
       </StatGrid>
 

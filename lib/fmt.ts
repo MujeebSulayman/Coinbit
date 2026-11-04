@@ -20,3 +20,11 @@ export const ago = (d: Date | string | null | undefined) => {
 };
 
 export const tone = (v: number) => (v > 0 ? "text-up" : v < 0 ? "text-down" : "text-mute");
+
+/** Dollar amount for SOL conversions: cents below $1K, then K/M. */
+export const usdAmt = (v: number, signed = false) => {
+  const sign = v < 0 ? "-" : signed && v > 0 ? "+" : "";
+  const a = Math.abs(v);
+  const body = a >= 1e6 ? `${(a / 1e6).toFixed(2)}M` : a >= 1e4 ? `${(a / 1e3).toFixed(1)}K` : a.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return `${sign}$${body}`;
+};

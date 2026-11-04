@@ -1,6 +1,7 @@
 import { Wallet } from "lucide-react";
 import { db } from "@/lib/db";
-import { ago, sol, tone } from "@/lib/fmt";
+import { ago, tone } from "@/lib/fmt";
+import { Money } from "../components/Money";
 import AutoRefresh from "../components/AutoRefresh";
 import type { Wallet as WalletRow } from "@/generated/prisma/client";
 import { Button } from "../components/Controls";
@@ -145,7 +146,7 @@ export default async function Wallets({
                     <div>
                       <dt className="text-faint">Copy PnL</dt>
                       <dd className={`num ${tone(w.copyPnlSol)}`}>
-                        {w.copyPnlSol ? sol(w.copyPnlSol, true) : "—"}
+                        {w.copyPnlSol ? <Money v={w.copyPnlSol} signed /> : "—"}
                       </dd>
                     </div>
                   </dl>
@@ -221,7 +222,7 @@ export default async function Wallets({
                         >
                           {((w.histWinRate ?? 0) * 100).toFixed(0)}% ·{" "}
                           <span className={tone(w.histPnlSol ?? 0)}>
-                            {sol(w.histPnlSol ?? 0, true)}
+                            <Money v={w.histPnlSol ?? 0} signed />
                           </span>{" "}
                           · {w.histTokens}
                         </span>
@@ -231,7 +232,7 @@ export default async function Wallets({
                     </td>
                     <td className="num">{w.signalHits}</td>
                     <td className={`num ${tone(w.copyPnlSol)}`}>
-                      {w.copyPnlSol ? sol(w.copyPnlSol, true) : "—"}
+                      {w.copyPnlSol ? <Money v={w.copyPnlSol} signed /> : "—"}
                     </td>
                     <td className="text-faint">{ago(w.lastActivity)}</td>
                     <td className="act">
