@@ -28,7 +28,16 @@ type Handlers = {
 };
 
 let ws: WebSocket | null = null;
-const handlers: Handlers = {};
+const handlers: { [K in keyof Handlers]-?: NonNullable<Handlers[K]>[] } = { onCreate: [], onTrade: [], onMigrate: [] };
+const each = (fns: ((m: PortalTrade) => void)[], m: PortalTrade) => {
+  for (const f of fns) {
+    try {
+      f(m);
+    } catch (e) {
+      console.error("[pumpportal] handler", e);
+    }
+  }
+};
 let accounts = new Set<string>();
 let backoff = 1000;
 let lastMsg = 0;
@@ -62,9 +71,9 @@ function connect() {
       return;
     }
     if (!m.signature || !m.mint) return;
-    if (m.txType === "create") handlers.onCreate?.(m);
-    else if (m.txType === "migrate") handlers.onMigrate?.(m);
-    else if (m.txType === "buy" || m.txType === "sell") handlers.onTrade?.(m);
+    if (m.txType === "create") each(handlers.onCreate, m);
+    else if (m.txType === "migrate") each(handlers.onMigrate, m);
+    else if (m.txType === "buy" || m.txType === "sell") each(handlers.onTrade, m);
   };
   sock.onclose = () => {
     if (ws !== sock) return;
@@ -75,9 +84,13 @@ function connect() {
   sock.onerror = () => sock.close();
 }
 
-/** Registers handlers (several modules can each add theirs) and opens the shared connection. */
+/** Registers handlers (several modules can each add theirs) and opens the shared connection.
+ *  Registering the same function again is a no-op, so callers may call this repeatedly. */
 export function startPortal(h: Handlers) {
-  Object.assign(handlers, h);
+  for (const k of ["onCreate", "onTrade", "onMigrate"] as const) {
+    const f = h[k];
+    if (f && !handlers[k].includes(f)) handlers[k].push(f);
+  }
   if (ws) return;
   connect();
   // The new-token feed is a constant stream; silence means the socket died.

@@ -51,6 +51,19 @@ model Token {
   studiedAt    DateTime?
   createdAt    DateTime  @default(now())
   entries      EarlyEntry[]
+
+  @@index([creator])
+}
+
+/// Every pump.fun launch (from the PumpPortal feed), kept ~10 days: who launched what, and when.
+/// Feeds the dev-reputation check (has this creator been launching other coins lately?).
+model Launch {
+  mint    String   @id
+  creator String
+  at      DateTime @default(now())
+
+  @@index([creator, at])
+  @@index([at])
 }
 
 model EarlyEntry {
@@ -97,6 +110,9 @@ model Signal {
   snipePct    Float?   // % of supply bought by others in the launch slot
   curvePct    Float?   // bonding curve progress
   impactPct   Float?   // estimated price impact of our buy
+  devGrads    Int?     // other coins by this creator that graduated (since we started recording)
+  devRecent   Int?     // other coins this creator launched in the last 7 days
+  socials     Int?     // how many of X / Telegram / website the coin lists (0-3)
   // Shadow tracking: what this coin did after the decision, taken or skipped (filled in by the worker)
   priceSol    Float?   // price at decision time
   peakRet     Float?   // best return (%) seen within 60 minutes

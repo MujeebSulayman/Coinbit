@@ -1,6 +1,6 @@
 import { CheckCircle2, Hourglass, XCircle } from "lucide-react";
 import { sol, tone } from "@/lib/fmt";
-import { MIN_TRADES, shadowReport, strategyPerf } from "@/lib/performance";
+import { filterTest, MIN_TRADES, shadowReport, strategyPerf } from "@/lib/performance";
 import AutoRefresh from "../components/AutoRefresh";
 import { Badge, Empty, PageHeader, Panel, Stat, StatGrid } from "../components/ui";
 
@@ -20,9 +20,10 @@ const VERDICT = {
 } as const;
 
 export default async function Performance() {
-  const data = await Promise.all(
-    STRATS.map(async ([key, name]) => ({ key, name, perf: await strategyPerf(key), shadow: await shadowReport(key) })),
-  );
+  const [data, ft] = await Promise.all([
+    Promise.all(STRATS.map(async ([key, name]) => ({ key, name, perf: await strategyPerf(key), shadow: await shadowReport(key) }))),
+    filterTest(),
+  ]);
 
   return (
     <>
@@ -157,9 +158,75 @@ export default async function Performance() {
                 </p>
               </div>
             </div>
+            {key === "migration" && <FilterTest ft={ft} />}
           </div>
         );
       })}
     </>
+  );
+}
+
+type FT = Awaited<ReturnType<typeof filterTest>>;
+type Row = FT["all"];
+
+function FilterRows({ rows, base }: { rows: Row[]; base: Row }) {
+  return (
+    <table>
+      <thead>
+        <tr>
+          <th>Group</th>
+          <th>Coins</th>
+          <th>Median +60m</th>
+          <th>Avg +60m</th>
+          <th>Hit +30%</th>
+          <th>Dead at 60m</th>
+          <th>We took</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((r) => (
+          <tr key={r.label}>
+            <td>{r.label}</td>
+            <td className="num text-mute">{r.n}</td>
+            <td className={`num ${r.n ? tone(r.median ?? 0) : ""}`}>{r.n ? pct(r.median) : "—"}</td>
+            <td className={`num ${r.n ? tone(r.avg ?? 0) : ""}`}>{r.n ? pct(r.avg) : "—"}</td>
+            <td className={`num ${r.n && r.hit30 > base.hit30 ? "text-up" : ""}`}>{r.n ? pct(r.hit30 * 100, false) : "—"}</td>
+            <td className={`num ${r.n && r.dead < base.dead ? "text-up" : ""}`}>{r.n ? pct(r.dead * 100, false) : "—"}</td>
+            <td className="num text-mute">{r.taken}</td>
+          </tr>
+        ))}
+        <tr className="text-faint">
+          <td>All graduates</td>
+          <td className="num">{base.n}</td>
+          <td className="num">{base.n ? pct(base.median) : "—"}</td>
+          <td className="num">{base.n ? pct(base.avg) : "—"}</td>
+          <td className="num">{base.n ? pct(base.hit30 * 100, false) : "—"}</td>
+          <td className="num">{base.n ? pct(base.dead * 100, false) : "—"}</td>
+          <td className="num">{base.taken}</td>
+        </tr>
+      </tbody>
+    </table>
+  );
+}
+
+/** Social-link and dev-reputation filters under test: recorded on every graduate, not yet blocking trades. */
+function FilterTest({ ft }: { ft: FT }) {
+  return (
+    <div className="space-y-2">
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Panel title="Filter test · social links" right={<span className="text-[12px] text-faint">X / Telegram / website</span>}>
+          {ft.all.n ? <FilterRows rows={ft.socials} base={ft.all} /> : <Empty>Fills in as graduates age (60 minutes after each).</Empty>}
+        </Panel>
+        <Panel title="Filter test · dev reputation" right={<span className="text-[12px] text-faint">creator history</span>}>
+          {ft.all.n ? <FilterRows rows={ft.dev} base={ft.all} /> : <Empty>Fills in as graduates age (60 minutes after each).</Empty>}
+        </Panel>
+      </div>
+      <p className="px-1 text-[12px] leading-relaxed text-faint">
+        Every graduate is grouped by each feature, whatever the other filters decided; green = better than all graduates. Turn a filter on in
+        Settings (Entry filters · migration) only once its group has 100+ coins and a clearly better median and dead rate.
+        {ft.coverageDays < 7 &&
+          ` Launch history so far covers ${ft.coverageDays.toFixed(1)} days, so "quiet 7d" is a best guess until it reaches 7.`}
+      </p>
+    </div>
   );
 }

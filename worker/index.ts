@@ -14,6 +14,7 @@ import { startMigrationStrategy } from "../lib/migration";
 import { allModes, strategyMode } from "../lib/modes";
 import { liveFeedCount } from "../lib/pricefeed";
 import { pruneOldData } from "../lib/retention";
+import { backfillCreators, startLaunchRecorder } from "../lib/devrep";
 import { applyOverrides } from "../lib/settings";
 import { trackSignals } from "../lib/shadow";
 import { managePositions } from "../lib/positions";
@@ -73,6 +74,8 @@ async function main() {
   await log("worker", `starting: ${summary}`);
   await notify(`🤖 Coinbit worker started — ${summary}`);
   startMigrationStrategy();
+  startLaunchRecorder(); // every pump.fun launch → dev-reputation history
+  every(3600_000, "creators", backfillCreators); // graduates recorded before creators were stored
 
   // Discovery: checked every minute, runs when due or when requested from the dashboard.
   // The wallet pipeline (discovery, vetting, live wallet listener) only runs when something needs it.

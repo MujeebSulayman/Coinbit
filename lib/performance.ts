@@ -1,5 +1,6 @@
 /** Strategy evaluation: the numbers that say whether a strategy is worth real money. */
 import { db } from "./db";
+import { FACTORY_GRADS } from "./devrep";
 
 export const MIN_TRADES = 50;
 
@@ -103,4 +104,41 @@ export async function shadowReport(strategy: string) {
       dead: g.rows.filter((r) => r.ret60 !== null && r.ret60 <= -50).length / Math.max(1, g.rows.filter((r) => r.ret60 !== null).length),
     }))
     .sort((a, b) => (a.decision === "TAKEN" ? -1 : b.decision === "TAKEN" ? 1 : b.n - a.n));
+}
+
+/**
+ * Research filters under test (social links, dev reputation): how every graduate did afterwards,
+ * grouped by each feature, before either filter is allowed to block trades. Median matters more than
+ * the average here: a few 10× coins drag averages up while most graduates die.
+ */
+export async function filterTest() {
+  const rows = await db.signal.findMany({
+    where: { strategy: "migration", ret60: { not: null }, OR: [{ socials: { not: null } }, { devGrads: { not: null } }] },
+    select: { socials: true, devGrads: true, devRecent: true, ret60: true, peakRet: true, decision: true },
+  });
+  const summarize = (label: string, rs: typeof rows) => {
+    const r = rs.map((x) => x.ret60!).sort((a, b) => a - b);
+    return {
+      label,
+      n: rs.length,
+      median: r.length ? r[Math.floor(r.length / 2)] : null,
+      avg: r.length ? r.reduce((s, x) => s + x, 0) / r.length : null,
+      hit30: rs.length ? rs.filter((x) => (x.peakRet ?? -Infinity) >= 30).length / rs.length : 0,
+      dead: rs.length ? rs.filter((x) => x.ret60! <= -50).length / rs.length : 0,
+      taken: rs.filter((x) => x.decision === "TAKEN").length,
+    };
+  };
+  const withSocials = rows.filter((x) => x.socials !== null);
+  const socials = [0, 1, 2, 3].map((k) => summarize(`${k} of 3`, withSocials.filter((x) => x.socials === k)));
+  const withDev = rows.filter((x) => x.devGrads !== null);
+  const dev = [
+    summarize("Proven: graduated before, quiet 7d", withDev.filter((x) => x.devGrads! > 0 && x.devGrads! < FACTORY_GRADS && x.devRecent === 0)),
+    summarize("Graduated before, still launching", withDev.filter((x) => x.devGrads! > 0 && x.devGrads! < FACTORY_GRADS && x.devRecent! > 0)),
+    summarize(`Graduation factory: ${FACTORY_GRADS}+ graduates`, withDev.filter((x) => x.devGrads! >= FACTORY_GRADS)),
+    summarize("First graduate, quiet 7d", withDev.filter((x) => x.devGrads === 0 && x.devRecent === 0)),
+    summarize("First graduate, serial launcher", withDev.filter((x) => x.devGrads === 0 && x.devRecent! > 0)),
+  ];
+  const oldest = await db.launch.findFirst({ orderBy: { at: "asc" }, select: { at: true } });
+  const coverageDays = oldest ? (Date.now() - oldest.at.getTime()) / 864e5 : 0;
+  return { socials, dev, all: summarize("All graduates", rows), coverageDays };
 }

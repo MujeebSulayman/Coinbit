@@ -24,6 +24,8 @@ import { bundledReason, devHoldPct, holderStats, mintRisk, tokenAge } from "./si
 import { PublicKey } from "@solana/web3.js";
 import { conn, feePayer, getBondingCurves, getParsedTxs, poolSolVault, PUMP_TOTAL_SUPPLY, sleep, tokenDeltas, withRetry, WSOL } from "./solana";
 import { notify, short } from "./telegram";
+import { devReputation, devRepText } from "./devrep";
+import { socialLinks } from "./socials";
 
 const PUMP_AMM = "pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA";
 /** SOL per token at graduation for a standard coin (85 SOL and 206.9M tokens seed the pool). */
@@ -80,12 +82,19 @@ async function smartHolders(mint: string): Promise<string[]> {
 
 const seen = new Set<string>();
 
+async function recordGraduate(mint: string) {
+  const creator = (await getBondingCurves([mint]).catch(() => new Map())).get(mint)?.creator ?? null;
+  await db.token.upsert({ where: { mint }, create: { mint, creator }, update: creator ? { creator } : {} });
+}
+
 async function handleMigration(m: PortalTrade) {
   if ((await strategyMode("migration")) === "off") return;
   const mint = m.mint;
   const size = config.migrationSizeSol;
   const t0 = Date.now();
   const migratedSec = Math.floor(t0 / 1000);
+  // Metadata doesn't change: read the social links while we wait out the BOOST window.
+  const socialsP = socialLinks(mint).catch(() => null);
 
   await sleep(config.migrationDelaySec * 1000);
   const mode = await strategyMode("migration"); // may have been toggled while waiting
@@ -104,6 +113,7 @@ async function handleMigration(m: PortalTrade) {
     tokenAge(mint),
     quotes([mint]).then((q) => q.get(mint)?.priceSol ?? null).catch(() => null),
   ]);
+  const [socials, dev] = await Promise.all([socialsP, devReputation(mint, curve?.creator).catch(() => null)]);
   const top10 = holders?.top10Pct ?? null;
   // Age from the curve's history; null means 1000+ curve txs, i.e. a long organic run before graduating.
   const ageMin = age.ageMin;
@@ -127,6 +137,10 @@ async function handleMigration(m: PortalTrade) {
   else if (risk) skip = risk;
   else if (top10 !== null && top10 > config.maxTop10HolderPct) skip = `top10 hold ${top10.toFixed(0)}%`;
   else if (devPct !== null && devPct > config.maxDevHoldPct) skip = `dev holds ${devPct.toFixed(0)}%`;
+  else if (config.migrationMinSocials > 0 && (socials?.count ?? 0) < config.migrationMinSocials)
+    skip = `socials: ${socials ? socials.count : "?"}/${config.migrationMinSocials} links`;
+  else if (config.migrationRequireProvenDev && !dev?.proven)
+    skip = dev ? `not a proven dev (${dev.grads} prior graduates, ${dev.recent} launches in 7d)` : "not a proven dev (creator unknown)";
   else if (smart.length < config.migrationMinSmartWallets) skip = `${smart.length} smart wallets holding`;
   if (!skip) {
     const rt = await roundTrip(mint, size).catch(() => null);
@@ -151,6 +165,8 @@ async function handleMigration(m: PortalTrade) {
     vsGradPct !== null ? `${vsGradPct >= 0 ? "+" : ""}${vsGradPct.toFixed(0)}% vs grad price` : null,
     flow ? `${flow.buys}/${flow.sells} buys/sells, ${flow.traders} traders after BOOST` : null,
     smart.length ? `${smart.length} smart holding` : null,
+    socials ? (socials.count ? `socials: ${socials.kinds.join(", ")}` : "no socials") : null,
+    dev ? devRepText(dev) : null,
   ].filter(Boolean);
 
   const signal = await db.signal.create({
@@ -167,6 +183,9 @@ async function handleMigration(m: PortalTrade) {
       devHoldPct: devPct ?? undefined,
       curvePct: 100,
       impactPct: now?.impactPct,
+      devGrads: dev?.grads,
+      devRecent: dev?.recent,
+      socials: socials?.count,
       priceSol: spot ?? undefined,
       decision: skip ? "SKIPPED" : "TAKEN",
       skipReason: skip,
@@ -197,8 +216,9 @@ export function startMigrationStrategy() {
     onMigrate: (m) => {
       if (seen.has(m.mint)) return;
       seen.add(m.mint);
-      // Every graduate is a potential future winner for discovery to study (see collectWinners).
-      db.token.upsert({ where: { mint: m.mint }, create: { mint: m.mint }, update: {} }).catch(() => {});
+      // Every graduate is recorded with its creator: a future winner for discovery to study (see
+      // collectWinners), and the graduation history behind the dev-reputation check.
+      recordGraduate(m.mint).catch(() => {});
       if (seen.size > 5000) seen.delete(seen.values().next().value!);
       handleMigration(m).catch((e) => log("signal", `migration ${m.mint} failed: ${(e as Error).message}`));
     },

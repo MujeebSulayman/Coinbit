@@ -97,6 +97,8 @@ export const SETTINGS: SettingDef[] = [
   d(GROUPS[7], "migrationMinBuyRatio", "MIGRATION_MIN_BUY_RATIO", "Min buys ÷ sells", "num", "After the BOOST window.", { min: 0, max: 20, step: 0.1 }),
   d(GROUPS[7], "migrationMinTraders", "MIGRATION_MIN_TRADERS", "Min traders", "int", "Distinct traders after the BOOST window.", { min: 0, max: 1000 }),
   d(GROUPS[7], "migrationMinFillMin", "MIGRATION_MIN_FILL_MIN", "Min launch → graduation", "int", "Faster than this = manufactured graduation.", { unit: "min", min: 0, max: 1440 }),
+  d(GROUPS[7], "migrationMinSocials", "MIGRATION_MIN_SOCIALS", "Min social links", "int", "Skip unless the coin lists at least this many of X / Telegram / website. 0 = off (still recorded: compare on the Performance page before turning on).", { min: 0, max: 3 }),
+  d(GROUPS[7], "migrationRequireProvenDev", "MIGRATION_REQUIRE_PROVEN_DEV", "Proven devs only", "bool", "Only buy if the creator graduated a coin before (but isn't a factory with 5+ graduates) and launched nothing else in the last 7 days. Off = still recorded for the Performance page."),
   d(GROUPS[7], "migrationMinSmartWallets", "MIGRATION_MIN_SMART_WALLETS", "Min smart wallets holding", "int", "Watched wallets that must hold the coin.", { min: 0, max: 50 }),
 
   d(GROUPS[8], "discoveryIntervalMin", "DISCOVERY_INTERVAL_MIN", "Discovery interval", "int", "How often to look for new winners and early buyers.", { unit: "min", min: 5, max: 1440 }),

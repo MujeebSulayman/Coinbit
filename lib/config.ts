@@ -103,6 +103,9 @@ export const config = {
   migrationMinTraders: num(env.MIGRATION_MIN_TRADERS, 15), // distinct traders after the BOOST window
   migrationMinSmartWallets: num(env.MIGRATION_MIN_SMART_WALLETS, 0),
   migrationMinFillMin: num(env.MIGRATION_MIN_FILL_MIN, 10), // launch → graduation faster than this = manufactured
+  // Research filters, off by default: recorded on every signal and compared on the Performance page first.
+  migrationMinSocials: num(env.MIGRATION_MIN_SOCIALS, 0), // of X / Telegram / website; 0 = off
+  migrationRequireProvenDev: bool(env.MIGRATION_REQUIRE_PROVEN_DEV, false), // dev graduated before + no launches in 7d
   migrationTpLevels: parseTpLevels(env.MIGRATION_TAKE_PROFIT_LEVELS ?? "30:50,100:25,200:25"),
   migrationStopLossPct: num(env.MIGRATION_STOP_LOSS_PCT, 25),
   migrationMaxHoldMin: num(env.MIGRATION_MAX_HOLD_MIN, 60),
