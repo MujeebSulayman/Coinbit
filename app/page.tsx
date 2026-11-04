@@ -11,6 +11,7 @@ import Link from "next/link";
 import { db } from "@/lib/db";
 import { ago, sol, tone, usd } from "@/lib/fmt";
 import { getStats } from "@/lib/stats";
+import { clock, TZ_LABEL } from "@/lib/time";
 import AutoRefresh from "./components/AutoRefresh";
 import { Button, ModeSwitch } from "./components/Controls";
 import EquityChart, { type EquityPoint } from "./components/EquityChart";
@@ -177,7 +178,7 @@ export default async function Overview() {
             label="Today"
             value={sol(s.today, true)}
             className={tone(s.today)}
-            sub="since 00:00 UTC"
+            sub={`since 00:00 ${TZ_LABEL}`}
           />
           <Stat
             label="Win rate"
@@ -363,9 +364,7 @@ export default async function Overview() {
                   className="flex flex-wrap gap-x-3 py-0.5 sm:flex-nowrap sm:py-0"
                 >
                   <span className="shrink-0 text-faint">
-                    {new Date(l.createdAt).toLocaleTimeString([], {
-                      hour12: false,
-                    })}
+                    {clock(l.createdAt)}
                   </span>
                   <span
                     className={`w-[72px] shrink-0 truncate ${logTone(l.kind, l.message)}`}

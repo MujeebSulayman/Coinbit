@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { dateTime } from "@/lib/time";
 
 export type EquityPoint = { t: string; v: number; label?: string };
 
@@ -158,10 +159,7 @@ export default function EquityChart({ points }: { points: EquityPoint[] }) {
           </div>
           {hover > 0 && (
             <div className="text-faint">
-              {new Date(h.t).toLocaleString([], {
-                dateStyle: "short",
-                timeStyle: "short",
-              })}
+              {dateTime(h.t)}
             </div>
           )}
         </div>

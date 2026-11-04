@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { clock } from "@/lib/time";
 
 export type PricePt = { t: number; p: number };
 export type FillPt = { t: number; p: number; side: "BUY" | "SELL"; sol: number; reason: string | null };
@@ -7,7 +8,7 @@ export type RefLine = { pct: number; label: string; kind: "entry" | "stop" | "tp
 
 const PAD = { t: 14, r: 64, b: 22, l: 12 };
 const pctText = (v: number) => `${v > 0 ? "+" : ""}${v.toFixed(Math.abs(v) < 10 ? 1 : 0)}%`;
-const timeText = (t: number) => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+const timeText = (t: number) => clock(t);
 
 /**
  * One series (price, as % vs entry) with reference lines for entry / stop / take-profits and a

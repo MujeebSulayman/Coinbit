@@ -49,7 +49,7 @@ export const SETTINGS: SettingDef[] = [
   d(GROUPS[0], "migrationSizeSol", "MIGRATION_SIZE_SOL", "Migration trade size", "num", "SOL per migration trade.", { unit: "SOL", min: 0.001, max: 100, step: 0.01 }),
   d(GROUPS[0], "maxOpenPositions", "MAX_OPEN_POSITIONS", "Max open · copy", "int", "Copy positions open at once.", { min: 1, max: 50 }),
   d(GROUPS[0], "migrationMaxOpen", "MIGRATION_MAX_OPEN", "Max open · migration", "int", "Migration positions open at once.", { min: 1, max: 50 }),
-  d(GROUPS[0], "dailyLossLimitSol", "DAILY_LOSS_LIMIT_SOL", "Daily loss limit", "num", "Trading pauses automatically after losing this much in a day (UTC). Shared by both strategies.", { unit: "SOL", min: 0.01, max: 1000, step: 0.1 }),
+  d(GROUPS[0], "dailyLossLimitSol", "DAILY_LOSS_LIMIT_SOL", "Daily loss limit", "num", "Trading pauses automatically after losing this much in a day (GMT+1). Shared by both strategies.", { unit: "SOL", min: 0.01, max: 1000, step: 0.1 }),
 
   d(GROUPS[1], "slippageBps", "SLIPPAGE_BPS", "Slippage", "int", "Max slippage on buys, in basis points (100 = 1%). Sells widen it on retries.", { unit: "bps", min: 50, max: 5000 }),
   d(GROUPS[1], "priorityFeeLamports", "PRIORITY_FEE_LAMPORTS", "Priority fee", "int", "Per transaction, in lamports (1 SOL = 1,000,000,000). Doubles on each sell retry.", { unit: "lamports", min: 0, max: 10_000_000 }),

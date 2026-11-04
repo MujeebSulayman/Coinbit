@@ -8,12 +8,7 @@ import type { Strategy } from "./modes";
 import { jupSellPrice, quotes } from "./market";
 import { flowStats, syncPriceFeeds } from "./pricefeed";
 import { notify, short } from "./telegram";
-
-const startOfDay = () => {
-  const d = new Date();
-  d.setUTCHours(0, 0, 0, 0);
-  return d;
-};
+import { startOfDay } from "./time";
 
 export async function isPaused() {
   return (await getKv("trading:paused")) === "true";

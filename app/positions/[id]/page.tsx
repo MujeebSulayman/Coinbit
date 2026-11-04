@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { ago, sol, tone, usd } from "@/lib/fmt";
+import { clock } from "@/lib/time";
 import { stopLevel } from "@/lib/positions";
 import { effectiveSettings } from "@/lib/settings";
 import AutoRefresh from "../../components/AutoRefresh";
@@ -177,7 +178,7 @@ export default async function TradePage({ params }: { params: Promise<{ id: stri
                     const at = f.priceSol > 0 ? (f.priceSol / p.entryPriceSol - 1) * 100 : null;
                     return (
                       <tr key={f.id}>
-                        <td className="num text-faint">{f.ts.toLocaleTimeString()}</td>
+                        <td className="num text-faint">{clock(f.ts)}</td>
                         <td>{f.side === "BUY" ? <Badge>Buy</Badge> : <Badge kind={at !== null && at < 0 ? "down" : "up"}>Sell</Badge>}</td>
                         <td className="num r">{f.side === "BUY" ? "−" : "+"}{f.sol.toFixed(4)}</td>
                         <td className={`num r ${at === null ? "text-faint" : tone(at)}`}>{at === null ? "—" : pct(at)}</td>

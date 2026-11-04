@@ -1,10 +1,10 @@
 import { config } from "./config";
 import { db, getKv } from "./db";
 import { allModes } from "./modes";
+import { startOfDay } from "./time";
 
 export async function getStats() {
-  const dayStart = new Date();
-  dayStart.setUTCHours(0, 0, 0, 0);
+  const dayStart = startOfDay();
   const [closed, open, watching, candidates, excluded, launchers, signals24, taken24, paused, hb, lastDisc] =
     await Promise.all([
       db.position.findMany({ where: { status: "CLOSED" }, select: { realizedSol: true, sizeSol: true, closedAt: true, strategy: true } }),
