@@ -20,3 +20,18 @@ export const clock = (d: Date | string | number, seconds = true) =>
 
 export const dateTime = (d: Date | string | number) =>
   new Date(d).toLocaleString("en-GB", { timeZone: TIME_ZONE, dateStyle: "short", timeStyle: "short", hour12: false });
+
+/** Short label for chart axes: "14:05" for today (GMT+1), otherwise "03/11 14:05". */
+export const axisTime = (d: Date | string | number, now = Date.now()) => {
+  const t = new Date(d).getTime();
+  if (t >= startOfDay(now).getTime()) return clock(t, false);
+  const day = new Date(t).toLocaleDateString("en-GB", { timeZone: TIME_ZONE, day: "2-digit", month: "2-digit" });
+  return `${day} ${clock(t, false)}`;
+};
+
+/** How far into the GMT+1 day we are, e.g. "10h 12m" (or "12m" in the first hour). */
+export const sinceMidnight = (now = Date.now()) => {
+  const min = Math.floor((now - startOfDay(now).getTime()) / 60_000);
+  const h = Math.floor(min / 60);
+  return h ? `${h}h ${min % 60}m` : `${min}m`;
+};

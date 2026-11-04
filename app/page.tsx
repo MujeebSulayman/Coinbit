@@ -14,6 +14,7 @@ import { Money } from "./components/Money";
 import { getStats } from "@/lib/stats";
 import { clock, TZ_LABEL } from "@/lib/time";
 import AutoRefresh from "./components/AutoRefresh";
+import LiveClock, { DayElapsed } from "./components/LiveClock";
 import { Button, ModeSwitch } from "./components/Controls";
 import EquityChart, { type EquityPoint } from "./components/EquityChart";
 import {
@@ -92,7 +93,11 @@ export default async function Overview() {
 
       <PageHeader
         title="Overview"
-        description={`Last wallet discovery ${ago(s.lastDiscovery)}.`}
+        description={
+          <>
+            <LiveClock /> · last wallet discovery {ago(s.lastDiscovery)}
+          </>
+        }
         right={
           <>
             <Button
@@ -179,7 +184,13 @@ export default async function Overview() {
             label="Today"
             value={<Money v={s.today} signed stack />}
             className={tone(s.today)}
-            sub={`since 00:00 ${TZ_LABEL}`}
+            sub={
+              <>
+                <span title={`Resets at midnight ${TZ_LABEL}`}>
+                  since midnight · <DayElapsed /> so far
+                </span>
+              </>
+            }
           />
           <Stat
             label="Win rate"

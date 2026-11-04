@@ -1,6 +1,8 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { dateTime } from "@/lib/time";
+import { usdAmt } from "@/lib/fmt";
+import { axisTime, dateTime, TZ_LABEL } from "@/lib/time";
+import { useSolPrice } from "./Money";
 
 export type EquityPoint = { t: string; v: number; label?: string };
 
@@ -14,6 +16,7 @@ export default function EquityChart({ points }: { points: EquityPoint[] }) {
   const ref = useRef<HTMLDivElement>(null);
   const [w, setW] = useState(0);
   const [hover, setHover] = useState<number | null>(null);
+  const price = useSolPrice();
   const H = w && w < 520 ? 190 : 270;
 
   useEffect(() => {
@@ -125,7 +128,7 @@ export default function EquityChart({ points }: { points: EquityPoint[] }) {
             fill="var(--color-faint)"
             fontFamily="var(--font-mono)"
           >
-            trade 1
+            {axisTime(points[0].t)}
           </text>
           <text
             x={w - PAD.r}
@@ -135,16 +138,28 @@ export default function EquityChart({ points }: { points: EquityPoint[] }) {
             textAnchor="end"
             fontFamily="var(--font-mono)"
           >
-            trade {points.length}
+            {axisTime(points[points.length - 1].t)} {TZ_LABEL}
           </text>
+          {w >= 520 && points.length > 2 && (
+            <text
+              x={geo.x(Math.round(points.length / 2))}
+              y={H - 6}
+              fontSize={10.5}
+              fill="var(--color-faint)"
+              textAnchor="middle"
+              fontFamily="var(--font-mono)"
+            >
+              {axisTime(points[Math.round(points.length / 2) - 1].t)}
+            </text>
+          )}
         </svg>
       )}
       {geo && h && hover !== null && (
         <div
           className="pointer-events-none absolute top-1 z-10 rounded-lg border border-line-strong bg-raised/95 px-2.5 py-1.5 text-[11.5px] shadow-xl backdrop-blur"
           style={{
-            left: Math.min(Math.max(geo.x(hover) - 70, 0), w - 150),
-            width: 150,
+            left: Math.min(Math.max(geo.x(hover) - 70, 0), w - 170),
+            width: 170,
           }}
         >
           <div className="text-faint">
@@ -156,10 +171,11 @@ export default function EquityChart({ points }: { points: EquityPoint[] }) {
             className={`num font-medium ${h.v >= 0 ? "text-up" : "text-down"}`}
           >
             {fmt(h.v)}
+            {price != null && <span className="ml-1.5 font-normal opacity-60">{usdAmt(h.v * price, true)}</span>}
           </div>
           {hover > 0 && (
             <div className="text-faint">
-              {dateTime(h.t)}
+              {dateTime(h.t)} {TZ_LABEL}
             </div>
           )}
         </div>
