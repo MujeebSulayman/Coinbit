@@ -143,9 +143,10 @@ export async function checkToken(mint: string) {
   const top10 = holders?.top10Pct ?? null;
 
   let skip: string | null = null;
-  if (!q || q.priceSol <= 0) skip = "no price";
-  else if ((q.nonStandard || q.nonSolPool) && !config.copyAllowNonSol)
+  // Non-SOL first: such pools often have no SOL price at all, which used to read as "no price".
+  if (q && (q.nonStandard || q.nonSolPool) && !config.copyAllowNonSol)
     skip = q.nonSolPool ? `pool quoted in ${q.nonSolPool}, not SOL` : "non-standard curve (not SOL-quoted)";
+  else if (!q || q.priceSol <= 0) skip = "no price";
   else if (q.mcapUsd > config.maxEntryMcapUsd) skip = `mcap $${Math.round(q.mcapUsd).toLocaleString()} too high`;
   else if (q.mcapUsd < config.copyMinMcapUsd) skip = `mcap $${Math.round(q.mcapUsd).toLocaleString()} below the $${config.copyMinMcapUsd.toLocaleString()} minimum`;
   else if (ageUnknown) skip = "age unknown (history lookup failed)";

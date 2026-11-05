@@ -260,7 +260,9 @@ async function checkExits(id: number, price: number) {
     belowStop.delete(id);
 
     // Momentum fade (after the first take-profit): sellers clearly took over in the last window.
-    if (p.tpHit >= 1 && config.momentumExit) {
+    // Not for launch positions: their tpHit counts sell-ladder legs, not take-profits, and the ladder
+    // already exits within ~10s (it closed 3 of the first 4 post-reset snipes early, all at a loss).
+    if (p.tpHit >= 1 && config.momentumExit && p.strategy !== "launch") {
       const f = flowStats(id, config.momentumWindowSec);
       if (f.buys + f.sells >= config.momentumMinTrades && f.sellSol > 0 && f.sellSol >= config.momentumSellRatio * Math.max(f.buySol, 1e-9)) {
         await sellPart(
