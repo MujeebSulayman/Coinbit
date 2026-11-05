@@ -169,15 +169,14 @@ export default async function TradePage({ params }: { params: Promise<{ id: stri
         <div className="px-3 pb-2 pt-3">
           <PriceChart entry={p.entryPriceSol} points={chartPoints} fills={chartFills} refs={refs} />
         </div>
-        <details className="border-t border-line">
-          <summary className="cursor-pointer px-4 py-2.5 text-[12.5px] text-faint hover:text-ink">Full market chart (DexScreener)</summary>
-          <iframe
-            title="DexScreener chart"
-            src={`https://dexscreener.com/solana/${p.mint}?embed=1&theme=dark&chartTheme=dark&trades=0&info=0`}
-            className="h-[420px] w-full border-0"
-            loading="lazy"
-          />
-        </details>
+        <a
+          href={`https://pump.fun/coin/${p.mint}`}
+          target="_blank"
+          rel="noreferrer"
+          className="block border-t border-line px-4 py-2.5 text-[12.5px] text-faint hover:text-ink"
+        >
+          Full market chart on pump.fun ↗
+        </a>
       </Panel>
 
       <div className="grid gap-5 lg:grid-cols-5">

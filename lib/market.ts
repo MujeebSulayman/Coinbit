@@ -163,6 +163,42 @@ export async function pumpSwapPair(mint: string): Promise<DexPair | null> {
   return pairs?.find((p) => p.dexId === "pumpswap" && p.quoteToken.address === WSOL) ?? null;
 }
 
+/* ---------------- Candles (GeckoTerminal, free tier: minute and up) ---------------- */
+
+const GT = "https://api.geckoterminal.com/api/v2/networks/solana";
+
+/** [unix seconds, open, high, low, close, volume in SOL], ascending; prices in SOL per token. */
+export type Candle = [number, number, number, number, number, number];
+export const CANDLE_TFS = { "1m": ["minute", 1], "5m": ["minute", 5], "15m": ["minute", 15], "1h": ["hour", 1], "4h": ["hour", 4], "1d": ["day", 1] } as const;
+export type CandleTf = keyof typeof CANDLE_TFS;
+
+type GtPool = { attributes: { address: string; pool_created_at: string | null }; relationships: { dex: { data: { id: string } } } };
+
+/**
+ * The coin's pool that was trading at `at`: the newest one created by then (bonding curve before
+ * migration, PumpSwap after). Falls back to GeckoTerminal's top pool.
+ */
+export async function candlePool(mint: string, at: number): Promise<{ address: string; dex: string } | null> {
+  const j = await getJson<{ data: GtPool[] }>(`${GT}/tokens/${mint}/pools?page=1`);
+  const pools = j?.data ?? [];
+  const live = pools
+    .filter((p) => p.attributes.pool_created_at && Date.parse(p.attributes.pool_created_at) <= at + 60_000)
+    .sort((a, b) => Date.parse(b.attributes.pool_created_at!) - Date.parse(a.attributes.pool_created_at!));
+  const p = live[0] ?? pools[0];
+  return p ? { address: p.attributes.address, dex: p.relationships.dex.data.id } : null;
+}
+
+/** Up to `limit` candles ending at `before` (unix seconds), priced in SOL. */
+export async function candles(pool: string, tf: CandleTf, before: number, limit = 300): Promise<Candle[]> {
+  const [unit, agg] = CANDLE_TFS[tf];
+  const j = await getJson<{ data: { attributes: { ohlcv_list: Candle[] } } }>(
+    `${GT}/pools/${pool}/ohlcv/${unit}?aggregate=${agg}&before_timestamp=${before}&limit=${limit}&currency=token`,
+  );
+  // Ascending with unique times (the API can repeat the latest bucket).
+  const byTime = new Map((j?.data.attributes.ohlcv_list ?? []).map((c) => [c[0], c] as const));
+  return [...byTime.values()].sort((a, b) => a[0] - b[0]);
+}
+
 /* ---------------- Winner sources for discovery ---------------- */
 
 export type WinnerCandidate = {
