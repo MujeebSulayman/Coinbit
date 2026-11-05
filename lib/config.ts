@@ -100,11 +100,20 @@ export const config = {
   histTxSample: num(env.HIST_TX_SAMPLE, 120),
   histPerRun: num(env.HIST_WALLETS_PER_RUN, 30),
   vetIntervalMin: num(env.VET_INTERVAL_MIN, 5), // background vetting cadence between discovery runs
-  histMinTokens: num(env.HIST_MIN_TOKENS, 8),
-  histMinWinRate: num(env.HIST_MIN_WIN_RATE, 0.35),
+  histMinTokens: num(env.HIST_MIN_TOKENS, 20), // research guides use 50–100 trades; our 120-tx sample caps it lower
+  histMinWinRate: num(env.HIST_MIN_WIN_RATE, 0.4),
   histMinPnlSol: num(env.HIST_MIN_PNL_SOL, 0),
   histMaxTokensPerHour: num(env.HIST_MAX_TOKENS_PER_HOUR, 10),
   histRecheckDays: num(env.HIST_RECHECK_DAYS, 3),
+  histMinMedianHoldSec: num(env.HIST_MIN_MEDIAN_HOLD_SEC, 120), // followability: too-fast wallets can't be copied in time
+  histMaxQuickSellPct: num(env.HIST_MAX_QUICK_SELL_PCT, 30), // …nor ones that often sell within 30s
+  histMaxTopCreatorPct: num(env.HIST_MAX_TOP_CREATOR_PCT, 30), // insiders: too many coins from one creator
+  histMaxBestCoinPct: num(env.HIST_MAX_BEST_COIN_PCT, 70), // one-hit wonders: most profit from a single coin
+  watchMaxIdleHours: num(env.WATCH_MAX_IDLE_HOURS, 48), // replace watched wallets that stopped trading
+  copyMergeLinked: bool(env.COPY_MERGE_LINKED, false), // count linked wallets once (off: past data didn't support it, see lib/linked)
+  copyLinkWindowSec: num(env.COPY_LINK_WINDOW_SEC, 150), // two wallets buying the same coin this close together…
+  copyLinkMinCoBuys: num(env.COPY_LINK_MIN_CO_BUYS, 3), // …on this many coins count as one decision
+  copyLinkMinSharePct: num(env.COPY_LINK_MIN_SHARE_PCT, 50), // …and on at least this share of the smaller wallet's coins
 
   // Migration strategy: buy confirmed pump.fun graduations to PumpSwap.
   migrationMode: (["off", "paper", "live"].includes(env.MIGRATION_MODE ?? "") ? env.MIGRATION_MODE : "paper") as StrategyMode,

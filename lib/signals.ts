@@ -4,6 +4,7 @@ import { config } from "./config";
 import { db, log } from "./db";
 import { jupBuyQuote, quotes, roundTrip, roundTripReason, solUsd, type Quote } from "./market";
 import { openPosition, riskBlock } from "./positions";
+import { independentGroups } from "./linked";
 import { tokenNames } from "./tokenmeta";
 import { bondingCurvePda, conn, feePayer, getParsedTxs, PUMP_TOTAL_SUPPLY, tokenDeltas, withRetry } from "./solana";
 import { strategyMode } from "./modes";
@@ -206,6 +207,23 @@ async function evaluateOnce(mint: string, trigger: { wallet: string; kind: "BUY"
     watched.some((w) => w.address === trigger.wallet && w.kind === "LAUNCHER");
 
   if (wallets.length < config.minConfluence && !launcherCreate) return;
+  // Wallets that always buy together are one decision, not several (lib/linked).
+  const groups = config.copyMergeLinked && wallets.length >= 2 ? await independentGroups(wallets) : wallets.map((w) => [w]);
+  if (groups.length < config.minConfluence && !launcherCreate) {
+    const prevLinked = await db.signal.findFirst({ where: { mint, skipReason: { startsWith: "linked wallets" }, createdAt: { gte: new Date(Date.now() - 30 * 60_000) } } });
+    if (!prevLinked)
+      await db.signal.create({
+        data: {
+          mint,
+          reason: `${wallets.length} smart wallets bought, but they trade as ${groups.length} (linked)`,
+          wallets,
+          confluence: groups.length,
+          decision: "SKIPPED",
+          skipReason: `linked wallets: ${groups.filter((g) => g.length > 1).map((g) => g.map((w) => w.slice(0, 4)).join("+")).join(", ")} always buy together`,
+        },
+      });
+    return;
+  }
 
   // Don't re-signal the same coin unless more wallets piled in.
   const prev = await db.signal.findFirst({

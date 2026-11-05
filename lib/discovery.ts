@@ -25,7 +25,7 @@ import {
 import { dexscreenerCandidates, pumpfunCandidates, quotes, type WinnerCandidate } from "./market";
 import { PublicKey } from "@solana/web3.js";
 import { notify } from "./telegram";
-import { historyVerdict, walletHistory } from "./history";
+import { historyJudged, historyVerdict, walletHistory } from "./history";
 
 const MAX_TOKENS_PER_RUN = Number(process.env.DISCOVERY_MAX_TOKENS ?? 40);
 const STICKY_EXCLUDES = ["hft", "manual", "bot"];
@@ -234,7 +234,18 @@ async function looksLikeHftBot(address: string): Promise<boolean> {
 }
 
 /** Stored history → exclusion reason (re-evaluated every refresh, so threshold changes apply immediately). */
-function storedHistoryVerdict(w: { histTokens: number | null; histWinRate: number | null; histPnlSol: number | null; histTokensPerHour: number | null }) {
+type StoredHist = {
+  histTokens: number | null;
+  histWinRate: number | null;
+  histPnlSol: number | null;
+  histTokensPerHour: number | null;
+  histMedianHoldSec: number | null;
+  histQuickSellPct: number | null;
+  histTopCreatorPct: number | null;
+  histBestCoinPct: number | null;
+  histLastTradeAt: Date | null;
+};
+function storedHistoryVerdict(w: StoredHist) {
   if (w.histTokens == null) return null;
   return historyVerdict({
     tokens: w.histTokens,
@@ -244,7 +255,18 @@ function storedHistoryVerdict(w: { histTokens: number | null; histWinRate: numbe
     tokensPerHour: w.histTokensPerHour ?? 0,
     buySizeCv: 1, // identical-size bots are excluded stickily at check time
     buys: 0,
+    medianHoldSec: w.histMedianHoldSec,
+    quickSellPct: w.histQuickSellPct,
+    topCreatorPct: w.histTopCreatorPct,
+    bestCoinPct: w.histBestCoinPct,
+    lastTradeAt: w.histLastTradeAt,
   });
+}
+
+/** Hours since the wallet last traded, from the live listener or its history sample (whichever is newer). */
+function idleHours(w: { lastActivity: Date | null; histLastTradeAt: Date | null }) {
+  const last = Math.max(w.lastActivity?.getTime() ?? 0, w.histLastTradeAt?.getTime() ?? 0);
+  return last ? (Date.now() - last) / 3600e3 : Infinity;
 }
 
 /**
@@ -315,6 +337,11 @@ async function doRefreshWatchlist(vetBudget: number) {
             histWinRate: h.winRate,
             histPnlSol: h.pnlSol,
             histTokensPerHour: h.tokensPerHour,
+            histMedianHoldSec: h.medianHoldSec,
+            histQuickSellPct: h.quickSellPct,
+            histTopCreatorPct: h.topCreatorPct,
+            histBestCoinPct: h.bestCoinPct,
+            histLastTradeAt: h.lastTradeAt,
             histCheckedAt: new Date(),
           },
         });
@@ -329,9 +356,12 @@ async function doRefreshWatchlist(vetBudget: number) {
       }
     }
 
-    // Fewer winners than the usual bar: only watch if the full history actually proves the wallet.
-    const winnersAlone = w.winners >= min || w.launchWinners >= min;
-    if (!winnersAlone && (hist.histTokens ?? 0) < config.histMinTokens) continue;
+    // Only wallets whose history was judged on enough coins are watched (winners alone used to be
+    // enough; research guides want a real track record). Launchers are judged on their launches.
+    const isLauncher = w.kind === "LAUNCHER" && w.launchWinners >= min;
+    if (!isLauncher && !historyJudged(hist.histTokens)) continue;
+    // Stopped trading: free the slot for an active candidate (not excluded; it can come back).
+    if (idleHours(hist) > config.watchMaxIdleHours) continue;
     const verdict = storedHistoryVerdict(hist);
     if (verdict) {
       await db.wallet.update({ where: { address: w.address }, data: { status: "EXCLUDED", excludeReason: verdict } });

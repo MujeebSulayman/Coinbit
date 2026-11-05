@@ -33,6 +33,12 @@ model Wallet {
   histPnlSol       Float?
   histTokensPerHour Float?
   histCheckedAt    DateTime?
+  // Followability and profile (see lib/history): can a copier act in time, and is the record real?
+  histMedianHoldSec Float?   // median time from first buy to first sell, per coin
+  histQuickSellPct  Float?   // % of coins first sold within 30s of the first buy
+  histTopCreatorPct Float?   // % of coins from the single most common creator (insider signal)
+  histBestCoinPct   Float?   // % of total winning profit from the best single coin (one-hit signal)
+  histLastTradeAt   DateTime? // latest trade in the sample
   entries        EarlyEntry[]
 
   @@index([status, score])
