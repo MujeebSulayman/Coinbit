@@ -216,9 +216,11 @@ export function Coin({
 export function Tabs({
   items,
   active,
+  scroll,
 }: {
   items: { href: string; label: string; count?: number; key: string }[];
   active: string;
+  scroll?: boolean;
 }) {
   return (
     <div className="inline-flex max-w-full overflow-x-auto rounded-lg border border-line bg-panel p-0.5">
@@ -226,6 +228,7 @@ export function Tabs({
         <Link
           key={t.key}
           href={t.href}
+          scroll={scroll}
           className={`flex h-8 shrink-0 items-center gap-1.5 rounded-md px-3 text-[12.5px] transition-colors sm:h-7 ${
             t.key === active
               ? "bg-raised font-medium text-ink shadow-sm ring-1 ring-line-strong"
