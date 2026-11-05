@@ -69,3 +69,29 @@ test("decodeBondingCurve flags curves that aren't SOL-quoted (2026-11 fake-gain 
   assert.equal(decodeBondingCurve(buf(760_854_059_297n, 1_073_000_000_000_000n))!.standard, false); // ~25× k
   assert.equal(decodeBondingCurve(buf(0n, 0n, true))!.standard, true); // completed: priced elsewhere
 });
+
+test("copy wallet review: losers and flippers are blocked, others kept", async () => {
+  const { judgeWallet } = await import("../lib/copyreview");
+  const cfg = { copyAutoBlockMinTrades: 5, copyAutoBlockMaxWinPct: 25, copyAutoBlockFlipPct: 60 };
+  const t = (pnl: number, quickMirror = false) => ({ pnl, quickMirror });
+  // Bup4…+Bvka…: 13 copies, 1 win, almost all closed within seconds by a mirror exit
+  const bup4 = [t(0.03, true), ...Array.from({ length: 12 }, () => t(-0.03, true))];
+  assert.match(judgeWallet(bup4, cfg)!, /^copies lose: 1\/13 won/);
+  assert.equal(judgeWallet(bup4.slice(0, 4), cfg), null); // too few copies to judge
+  // flipper with an OK win rate but a net loss
+  const flipper = [t(0.01, true), t(0.01, true), t(-0.05, true), t(-0.05, true), t(0.02, false)];
+  assert.match(judgeWallet(flipper, cfg)!, /^flipper: sold within 10s on 4\/5/);
+  // a decent wallet
+  assert.equal(judgeWallet([t(0.1), t(-0.05), t(0.08), t(-0.02), t(0.2)], cfg), null);
+});
+
+test("token names: Metaplex and Token-2022 metadata layouts", async () => {
+  const { parseMetaplex, parseToken2022Metadata } = await import("../lib/tokenmeta");
+  const str = (s: string, pad = 0) => { const b = Buffer.alloc(4 + s.length + pad); b.writeUInt32LE(s.length + pad, 0); b.write(s, 4); return b; };
+  const mp = Buffer.concat([Buffer.alloc(1 + 32 + 32), str("Spendtap", 24), str("TAP", 7), str("https://x")]);
+  assert.deepEqual(parseMetaplex(mp), { name: "Spendtap", symbol: "TAP" });
+  const value = Buffer.concat([Buffer.alloc(64), str("muslim cat"), str("MCAT"), str("https://y")]);
+  const tlv = Buffer.alloc(4); tlv.writeUInt16LE(19, 0); tlv.writeUInt16LE(value.length, 2);
+  const mint = Buffer.concat([Buffer.alloc(166), tlv, value]);
+  assert.deepEqual(parseToken2022Metadata(mint), { name: "muslim cat", symbol: "MCAT" });
+});

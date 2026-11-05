@@ -18,6 +18,7 @@ import { pruneOldData } from "../lib/retention";
 import { backfillCreators, startLaunchRecorder } from "../lib/devrep";
 import { applyOverrides } from "../lib/settings";
 import { trackSignals } from "../lib/shadow";
+import { reviewCopyWallets } from "../lib/copyreview";
 import { managePositions } from "../lib/positions";
 import { notify } from "../lib/telegram";
 import { listenerHealth, syncSubscriptions, watchingCount } from "./listener";
@@ -96,7 +97,8 @@ async function main() {
   });
   sweepEmptyTokenAccounts().catch((e) => log("trade", `rent sweep failed: ${(e as Error).message}`));
   every(10_000, "positions", managePositions);
-  every(60_000, "shadow", trackSignals); // what every signal did afterwards, taken or skipped
+  every(60_000, "shadow", trackSignals);
+  every(30 * 60_000, "copy review", () => reviewCopyWallets()); // block losing / flipper wallets (also after every copy close) // what every signal did afterwards, taken or skipped
   every(6 * 3600_000, "retention", pruneOldData); // logs 14d, raw wallet events 30d, untraded signals 90d
   every(30_000, "heartbeat", async () => {
     await setKv("worker:heartbeat", JSON.stringify({

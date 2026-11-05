@@ -8,6 +8,7 @@ import type { Strategy } from "./modes";
 import { jupSellPrice, quotes } from "./market";
 import { flowStats, syncPriceFeeds } from "./pricefeed";
 import { notify, short } from "./telegram";
+import { reviewCopyWallets } from "./copyreview";
 import { isStagnant, jumpGuard, quoteShock, stopLevel as stopLevelPure } from "./exits";
 import { startOfDay } from "./time";
 
@@ -56,6 +57,21 @@ export async function openPosition(opts: {
 }): Promise<Position | null> {
   const strategy = opts.strategy ?? "copy";
   const size = opts.sizeSol ?? config.positionSizeSol;
+  // Never hold the same coin twice in one strategy, even if two buys race (see evaluate's lock).
+  const key = `${strategy}:${opts.mint}`;
+  if (opening.has(key)) return null;
+  if (await db.position.findFirst({ where: { mint: opts.mint, strategy, status: "OPEN" }, select: { id: true } })) return null;
+  opening.add(key);
+  try {
+    return await openPositionOnce(opts, strategy, size);
+  } finally {
+    opening.delete(key);
+  }
+}
+
+const opening = new Set<string>(); // strategy:mint with a buy in flight
+
+async function openPositionOnce(opts: Parameters<typeof openPosition>[0], strategy: Strategy, size: number): Promise<Position | null> {
   const fill =
     opts.sendLive && opts.mode === "live" ? await opts.sendLive() : await buy(opts.mint, size, opts.priceSol, opts.mode, opts.paperTokens);
   opts.onFill?.(fill);
@@ -152,6 +168,8 @@ async function creditWallets(p: Position) {
   for (const w of p.triggerWallets) {
     await db.wallet.updateMany({ where: { address: w }, data: { copyPnlSol: { increment: share } } });
   }
+  // Re-judge these wallets now that one more of their copies has closed (see lib/copyreview).
+  if (p.strategy === "copy" && p.triggerWallets.length) await reviewCopyWallets(p.triggerWallets).catch(() => {});
 }
 
 export async function closePosition(id: number, reason: string) {

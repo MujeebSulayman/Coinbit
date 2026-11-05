@@ -4,6 +4,7 @@ import { config } from "./config";
 import { db, log } from "./db";
 import { jupBuyQuote, quotes, roundTrip, roundTripReason, solUsd, type Quote } from "./market";
 import { openPosition, riskBlock } from "./positions";
+import { tokenNames } from "./tokenmeta";
 import { bondingCurvePda, conn, feePayer, getParsedTxs, PUMP_TOTAL_SUPPLY, tokenDeltas, withRetry } from "./solana";
 import { strategyMode } from "./modes";
 import { notify, short } from "./telegram";
@@ -136,7 +137,8 @@ export async function checkToken(mint: string) {
   const rt = q ? await roundTrip(mint, config.positionSizeSol).catch(() => null) : null;
   const impact = q ? await priceImpactPct(q) : null;
   const curvePct = q?.curve?.progressPct ?? null;
-  const symbol = q?.symbol ?? null;
+  // DexScreener only names coins once they trade on a DEX; curve coins get their name from the chain.
+  const symbol = q?.symbol ?? (await tokenNames([mint]).catch(() => new Map())).get(mint)?.symbol ?? null;
   const top10 = holders?.top10Pct ?? null;
 
   let skip: string | null = null;
@@ -144,6 +146,7 @@ export async function checkToken(mint: string) {
   else if ((q.nonStandard || q.nonSolPool) && !config.copyAllowNonSol)
     skip = q.nonSolPool ? `pool quoted in ${q.nonSolPool}, not SOL` : "non-standard curve (not SOL-quoted)";
   else if (q.mcapUsd > config.maxEntryMcapUsd) skip = `mcap $${Math.round(q.mcapUsd).toLocaleString()} too high`;
+  else if (q.mcapUsd < config.copyMinMcapUsd) skip = `mcap $${Math.round(q.mcapUsd).toLocaleString()} below the $${config.copyMinMcapUsd.toLocaleString()} minimum`;
   else if (ageUnknown) skip = "age unknown (history lookup failed)";
   else if (ageMin === null || ageMin > config.maxTokenAgeMin) skip = `too old (${ageMin === null ? "1000+ txs" : `${Math.round(ageMin)}m`})`;
   else if (authority) skip = authority;
@@ -166,7 +169,24 @@ export async function checkToken(mint: string) {
   return { q, symbol, ageMin, top10, devPct, snipePct, curvePct, impact, skip };
 }
 
+const evaluating = new Set<string>(); // coins being evaluated right now
+
+/**
+ * One evaluation per coin at a time. Several watched wallets often buy in the same second; each buy
+ * used to start its own evaluation, and all of them passed "already holding" before the first position
+ * existed (27Z4sokp was bought 6 times within 3.5s). A buy that arrives mid-evaluation is covered by it.
+ */
 export async function evaluate(mint: string, trigger: { wallet: string; kind: "BUY" | "CREATE" }) {
+  if (evaluating.has(mint)) return;
+  evaluating.add(mint);
+  try {
+    await evaluateOnce(mint, trigger);
+  } finally {
+    evaluating.delete(mint);
+  }
+}
+
+async function evaluateOnce(mint: string, trigger: { wallet: string; kind: "BUY" | "CREATE" }) {
   const mode = await strategyMode("copy");
   if (mode === "off") return;
   const since = new Date(Date.now() - config.confluenceWindowMin * 60_000);

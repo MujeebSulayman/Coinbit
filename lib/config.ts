@@ -55,6 +55,10 @@ export const config = {
 
   // Coins not priced in SOL (non-standard curves, or pools quoted in another token): off = skip them.
   // On = trade them only if Jupiter's SOL quote and DexScreener's USD price (converted) agree.
+  copyMinMcapUsd: num(env.COPY_MIN_MCAP_USD, 8000), // skip coins smaller than this (mostly seconds-old curve coins)
+  copyAutoBlockMinTrades: num(env.COPY_AUTO_BLOCK_MIN_TRADES, 5), // judge a wallet after this many copies...
+  copyAutoBlockMaxWinPct: num(env.COPY_AUTO_BLOCK_MAX_WIN_PCT, 25), // ...block it if fewer than this % of them won (0 = off)
+  copyAutoBlockFlipPct: num(env.COPY_AUTO_BLOCK_FLIP_PCT, 60), // ...or if this % of them closed within seconds because it sold, at a net loss
   copyAllowNonSol: bool(env.COPY_ALLOW_NON_SOL, false),
   copyNonSolMaxGapPct: num(env.COPY_NON_SOL_MAX_GAP_PCT, 15),
   tpLevels: parseTpLevels(env.TAKE_PROFIT_LEVELS ?? "100:50,300:30,900:20"),
