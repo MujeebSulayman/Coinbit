@@ -159,6 +159,15 @@ export async function jupSell(mint: string, tokens: number, priority: Priority =
   return sol > 0 ? { ok: true, data: sol / tokens } : { ok: false, reason: "no-route" };
 }
 
+/** Jupiter's live price index in SOL (USD price ÷ SOL/USD), or null. Fresher than DexScreener's listing. */
+export async function jupPriceSol(mint: string): Promise<number | null> {
+  const r = await jupGet<Record<string, { usdPrice?: number }>>(`/price/v3?ids=${mint}`, { priority: "high", tries: 2 });
+  const usd = r.ok ? r.data[mint]?.usdPrice : undefined;
+  if (!usd || usd <= 0) return null;
+  const sol = await solUsd();
+  return sol > 0 ? usd / sol : null;
+}
+
 /** Effective sell price for `tokens` (null if it can't be quoted). Exits and open positions: high priority. */
 export async function jupSellPrice(mint: string, tokens: number, priority: Priority = "high"): Promise<number | null> {
   const r = await jupSell(mint, tokens, priority);

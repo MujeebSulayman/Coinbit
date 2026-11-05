@@ -105,8 +105,10 @@ export const config = {
   histMinPnlSol: num(env.HIST_MIN_PNL_SOL, 0),
   histMaxTokensPerHour: num(env.HIST_MAX_TOKENS_PER_HOUR, 10),
   histRecheckDays: num(env.HIST_RECHECK_DAYS, 3),
-  histMinMedianHoldSec: num(env.HIST_MIN_MEDIAN_HOLD_SEC, 120), // followability: too-fast wallets can't be copied in time
-  histMaxQuickSellPct: num(env.HIST_MAX_QUICK_SELL_PCT, 30), // …nor ones that often sell within 30s
+  // Followability, "medium": blocks clear flippers (Blizz's cutoff is a 20s median hold). The research default
+  // (2 min / 30%) failed 19 of the top 20 watched wallets in a 2026-11-05 calibration.
+  histMinMedianHoldSec: num(env.HIST_MIN_MEDIAN_HOLD_SEC, 20), // followability: too-fast wallets can't be copied in time
+  histMaxQuickSellPct: num(env.HIST_MAX_QUICK_SELL_PCT, 60), // …nor ones that mostly sell within 30s
   histMaxTopCreatorPct: num(env.HIST_MAX_TOP_CREATOR_PCT, 30), // insiders: too many coins from one creator
   histMaxBestCoinPct: num(env.HIST_MAX_BEST_COIN_PCT, 70), // one-hit wonders: most profit from a single coin
   watchMaxIdleHours: num(env.WATCH_MAX_IDLE_HOURS, 48), // replace watched wallets that stopped trading

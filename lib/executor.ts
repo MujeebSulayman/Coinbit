@@ -23,7 +23,7 @@ import bs58 from "bs58";
 import { config } from "./config";
 import { log } from "./db";
 import { jupGet, jupPost } from "./jupiter";
-import { jupBuy, quotes } from "./market";
+import { jupBuy, jupPriceSol, quotes } from "./market";
 import { sleep, solDelta, tokenDeltas, WSOL } from "./solana";
 
 const PORTAL_TRADE = "https://pumpportal.fun/api/trade-local"; // builds a pump.fun / PumpSwap tx for us to sign (0.5% fee)
@@ -322,7 +322,10 @@ export async function buy(mint: string, sizeSol: number, priceSol: number, mode:
     // Cross-check against an independent price (curve or market): an executable quote should sit a little
     // above it (fees, impact), never far away. Memcoin-Sniper-Bot uses the same 0.8–1.25 band after
     // buying "at 114× the index" once.
-    const index = (await quotes([mint]).catch(() => new Map())).get(mint)?.priceSol;
+    // Reference price must be live: on the curve it's read from the chain; after graduation use Jupiter's
+    // price index, not DexScreener's listing, which lags a pumping coin (d/acc was rejected at 1.6× a stale price).
+    const q0 = (await quotes([mint]).catch(() => new Map())).get(mint);
+    const index = q0?.onCurve ? q0.priceSol : ((await jupPriceSol(mint).catch(() => null)) ?? q0?.priceSol);
     if (index && index > 0) {
       const ratio = q.data.priceSol / index;
       if (ratio < 0.8 || ratio > 1.25)

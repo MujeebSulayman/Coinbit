@@ -196,6 +196,10 @@ export async function rescoreWallets() {
       score += (w.histWinRate ?? 0) * 20 + Math.max(-20, Math.min(20, (w.histPnlSol ?? 0) * 2));
     }
     if (w.lastActivity && Date.now() - w.lastActivity.getTime() > 14 * 864e5) score *= 0.7;
+    // Followability: early buyers of winners are mostly seconds-long flippers a copier can't keep up with,
+    // so rank wallets that hold for minutes above them (calibration 2026-11-05: 10 of the top 20 flipped).
+    const hold = w.histMedianHoldSec;
+    if (hold != null) score += hold >= 300 ? 15 : hold >= 120 ? 10 : hold >= config.histMinMedianHoldSec ? 0 : -20;
 
     let excludeReason: string | null = null;
     const sticky = w.excludeReason && STICKY_EXCLUDES.some((p) => w.excludeReason!.startsWith(p));
