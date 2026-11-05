@@ -188,14 +188,15 @@ export async function candlePool(mint: string, at: number): Promise<{ address: s
   return p ? { address: p.attributes.address, dex: p.relationships.dex.data.id } : null;
 }
 
-/** Up to `limit` candles ending at `before` (unix seconds), priced in SOL. */
-export async function candles(pool: string, tf: CandleTf, before: number, limit = 300): Promise<Candle[]> {
+/** Up to `limit` candles ending at `before` (unix seconds), priced in SOL; null if the request failed. */
+export async function candles(pool: string, tf: CandleTf, before: number, limit = 300): Promise<Candle[] | null> {
   const [unit, agg] = CANDLE_TFS[tf];
   const j = await getJson<{ data: { attributes: { ohlcv_list: Candle[] } } }>(
     `${GT}/pools/${pool}/ohlcv/${unit}?aggregate=${agg}&before_timestamp=${before}&limit=${limit}&currency=token`,
   );
+  if (!j) return null;
   // Ascending with unique times (the API can repeat the latest bucket).
-  const byTime = new Map((j?.data.attributes.ohlcv_list ?? []).map((c) => [c[0], c] as const));
+  const byTime = new Map((j.data?.attributes.ohlcv_list ?? []).map((c) => [c[0], c] as const));
   return [...byTime.values()].sort((a, b) => a[0] - b[0]);
 }
 
