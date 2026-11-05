@@ -61,8 +61,10 @@ export type Quote = {
   priceSol: number;
   mcapUsd: number;
   onCurve: boolean;
-  /** On a pump.fun curve that isn't SOL-quoted: priced from the market instead, and not tradeable for us. */
+  /** On a pump.fun curve that isn't SOL-quoted: priced from the market instead. */
   nonStandard?: boolean;
+  /** Trades in a pool quoted in another token (e.g. CARDS), not SOL: priceSol is converted from USD. */
+  nonSolPool?: string;
   /** Bonding-curve details (only while on the curve). */
   curve?: { progressPct: number; vSol: number; creator: string | null };
   liquidityUsd?: number;
@@ -100,6 +102,7 @@ export async function quotes(mints: string[]): Promise<Map<string, Quote>> {
       out.set(m, {
         mint: m,
         nonStandard: !!(curves.get(m) && !curves.get(m)!.complete && !curves.get(m)!.standard),
+        nonSolPool: p.quoteToken.address === WSOL ? undefined : p.quoteToken.symbol,
         priceSol,
         mcapUsd: p.marketCap ?? p.fdv ?? 0,
         onCurve: false,

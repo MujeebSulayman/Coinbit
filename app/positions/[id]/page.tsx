@@ -9,7 +9,7 @@ import { stopLevel } from "@/lib/exits";
 import { effectiveSettings } from "@/lib/settings";
 import AutoRefresh from "../../components/AutoRefresh";
 import CopyButton from "../../components/CopyButton";
-import MarketChart from "../../components/MarketChart";
+import { MarketChartPanel } from "../../components/MarketChart";
 import PriceChart, { type FillPt, type RefLine } from "../../components/PriceChart";
 import { Addr, Badge, Panel, Stat, StatGrid } from "../../components/ui";
 import { CloseButton, StrategyTag } from "../table";
@@ -172,23 +172,15 @@ export default async function TradePage({ params }: { params: Promise<{ id: stri
         </div>
       </Panel>
 
-      <Panel
-        title="Market chart"
-        right={
-          <a href={`https://pump.fun/coin/${p.mint}`} target="_blank" rel="noreferrer" className="text-[12px] text-faint hover:text-ink">
-            Open on pump.fun ↗
-          </a>
-        }
-      >
-        <MarketChart
-          mint={p.mint}
-          from={p.openedAt.getTime()}
-          to={p.closedAt?.getTime() ?? null}
-          live={open}
-          entry={p.entryPriceSol}
-          fills={chartFills}
-        />
-      </Panel>
+      <MarketChartPanel
+        pumpUrl={`https://pump.fun/coin/${p.mint}`}
+        mint={p.mint}
+        from={p.openedAt.getTime()}
+        to={p.closedAt?.getTime() ?? null}
+        live={open}
+        entry={p.entryPriceSol}
+        fills={chartFills}
+      />
 
       <div className="grid gap-5 lg:grid-cols-5">
         <div className="min-w-0 space-y-5 lg:col-span-3">

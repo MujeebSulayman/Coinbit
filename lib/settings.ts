@@ -92,6 +92,8 @@ export const SETTINGS: SettingDef[] = [
   d(GROUPS[6], "maxDevSoldPct", "MAX_DEV_SOLD_PCT", "Max dev sold", "num", "Skip if the creator already sold more than this share of their launch buy.", { unit: "%", min: 0, max: 100 }),
   d(GROUPS[6], "maxCurveProgressPct", "MAX_CURVE_PROGRESS_PCT", "Max curve progress", "num", "Skip coins about to graduate.", { unit: "%", min: 1, max: 100 }),
   d(GROUPS[6], "maxPriceImpactPct", "MAX_PRICE_IMPACT_PCT", "Max price impact", "num", "Skip if our buy would move the price more than this.", { unit: "%", min: 0.1, max: 50, step: 0.1 }),
+  d(GROUPS[6], "copyAllowNonSol", "COPY_ALLOW_NON_SOL", "Trade coins not priced in SOL", "bool", "Some pump.fun coins trade against another token (e.g. CARDS) or on non-standard curves. Off = skip them. On = buy only if two independent prices agree (below), then price them only with live Jupiter SOL quotes."),
+  d(GROUPS[6], "copyNonSolMaxGapPct", "COPY_NON_SOL_MAX_GAP_PCT", "…max price disagreement", "num", "Jupiter's executable SOL quote vs DexScreener's USD price converted to SOL. Skip if they differ by more.", { unit: "%", min: 1, max: 100 }),
   d(GROUPS[6], "maxRoundTripLossPct", "MAX_ROUNDTRIP_LOSS_PCT", "Max round-trip loss", "num", "Sellability check: skip if a buy then sell would lose more (both strategies).", { unit: "%", min: 1, max: 100 }),
 
   d(GROUPS[7], "migrationDelaySec", "MIGRATION_DELAY_SEC", "Decision delay", "int", "Seconds after graduation before deciding (BOOST buybacks run ~300s).", { unit: "sec", min: 30, max: 3600 }),

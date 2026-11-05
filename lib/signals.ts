@@ -2,7 +2,7 @@
 import { PublicKey, type ConfirmedSignatureInfo, type ParsedAccountData } from "@solana/web3.js";
 import { config } from "./config";
 import { db, log } from "./db";
-import { quotes, roundTrip, roundTripReason, solUsd, type Quote } from "./market";
+import { jupBuyQuote, quotes, roundTrip, roundTripReason, solUsd, type Quote } from "./market";
 import { openPosition, riskBlock } from "./positions";
 import { bondingCurvePda, conn, feePayer, getParsedTxs, PUMP_TOTAL_SUPPLY, tokenDeltas, withRetry } from "./solana";
 import { strategyMode } from "./modes";
@@ -141,7 +141,8 @@ export async function checkToken(mint: string) {
 
   let skip: string | null = null;
   if (!q || q.priceSol <= 0) skip = "no price";
-  else if (q.nonStandard) skip = "non-standard curve (not SOL-quoted)";
+  else if ((q.nonStandard || q.nonSolPool) && !config.copyAllowNonSol)
+    skip = q.nonSolPool ? `pool quoted in ${q.nonSolPool}, not SOL` : "non-standard curve (not SOL-quoted)";
   else if (q.mcapUsd > config.maxEntryMcapUsd) skip = `mcap $${Math.round(q.mcapUsd).toLocaleString()} too high`;
   else if (ageUnknown) skip = "age unknown (history lookup failed)";
   else if (ageMin === null || ageMin > config.maxTokenAgeMin) skip = `too old (${ageMin === null ? "1000+ txs" : `${Math.round(ageMin)}m`})`;
@@ -154,6 +155,14 @@ export async function checkToken(mint: string) {
   else if (snipePct !== null && snipePct > config.maxLaunchSnipePct) skip = `launch snipers took ${snipePct.toFixed(0)}%`;
   else if (devSoldPct !== null && devSoldPct > config.maxDevSoldPct) skip = `dev already sold ${devSoldPct.toFixed(0)}% of launch buy`;
   else if (rt && (!rt.sellable || rt.lossPct > config.maxRoundTripLossPct)) skip = roundTripReason(rt);
+  // Not priced in SOL: our only SOL price is DexScreener's USD price converted, so confirm it against
+  // an executable Jupiter quote before trusting it.
+  if (!skip && q && (q.nonStandard || q.nonSolPool)) {
+    const jq = await jupBuyQuote(mint, config.positionSizeSol).catch(() => null);
+    const gap = jq && q.priceSol > 0 ? Math.abs(jq.priceSol / q.priceSol - 1) * 100 : null;
+    if (gap === null) skip = "not SOL-priced and no Jupiter quote to verify it";
+    else if (gap > config.copyNonSolMaxGapPct) skip = `price sources disagree by ${gap.toFixed(0)}% (not SOL-priced)`;
+  }
   return { q, symbol, ageMin, top10, devPct, snipePct, curvePct, impact, skip };
 }
 

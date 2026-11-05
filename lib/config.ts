@@ -52,6 +52,10 @@ export const config = {
   maxCurveProgressPct: num(env.MAX_CURVE_PROGRESS_PCT, 95),
   maxPriceImpactPct: num(env.MAX_PRICE_IMPACT_PCT, 5),
 
+  // Coins not priced in SOL (non-standard curves, or pools quoted in another token): off = skip them.
+  // On = trade them only if Jupiter's SOL quote and DexScreener's USD price (converted) agree.
+  copyAllowNonSol: bool(env.COPY_ALLOW_NON_SOL, false),
+  copyNonSolMaxGapPct: num(env.COPY_NON_SOL_MAX_GAP_PCT, 15),
   tpLevels: parseTpLevels(env.TAKE_PROFIT_LEVELS ?? "100:50,300:30,900:20"),
   stopLossPct: num(env.STOP_LOSS_PCT, 35),
   maxHoldMin: num(env.MAX_HOLD_MIN, 240),

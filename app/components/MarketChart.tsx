@@ -10,6 +10,7 @@ import {
   type SeriesMarker,
   type UTCTimestamp,
 } from "lightweight-charts";
+import { ChevronDown } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Candle, CandleTf } from "@/lib/market";
 import { axisTime, dateTime } from "@/lib/time";
@@ -219,5 +220,29 @@ export default function MarketChart({
         )}
       </div>
     </div>
+  );
+}
+
+/** The market chart in a collapsible panel; closed by default, and nothing loads until it's opened. */
+export function MarketChartPanel({ pumpUrl, ...props }: Parameters<typeof MarketChart>[0] & { pumpUrl: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <section className="flex min-w-0 flex-col overflow-hidden rounded-xl border border-line bg-panel">
+      <header className={`flex h-11 items-center justify-between gap-3 px-4 ${open ? "border-b border-line" : ""}`}>
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={() => setOpen((o) => !o)}
+          className="flex flex-1 items-center gap-2 self-stretch text-left text-[13px] font-medium"
+        >
+          <ChevronDown size={15} className={`text-faint transition-transform ${open ? "" : "-rotate-90"}`} />
+          Market chart
+        </button>
+        <a href={pumpUrl} target="_blank" rel="noreferrer" className="text-[12px] text-faint hover:text-ink">
+          Open on pump.fun ↗
+        </a>
+      </header>
+      {open && <MarketChart {...props} />}
+    </section>
   );
 }

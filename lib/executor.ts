@@ -318,15 +318,16 @@ export type ExecMode = "paper" | "live";
 /**
  * Paper buys fill at what you could actually get right now: `paperTokens` when the caller computed an
  * executable fill itself (the launch sniper, from the bonding curve), otherwise a fresh Jupiter buy
- * quote. The passed-in price is only a fallback; it can be minutes old (that made paper losses look
- * worse than live ones: see the 2026-11 trade review).
+ * quote. The passed-in price is never used for paper fills: it can be minutes old.
  */
 export async function buy(mint: string, sizeSol: number, priceSol: number, mode: ExecMode, paperTokens?: number): Promise<Fill> {
   if (mode === "paper") {
     if (paperTokens && paperTokens > 0) return { signature: null, tokens: paperTokens, sol: sizeSol };
+    // No executable quote = no paper fill. Falling back to the caller's price once filled SLOP (2026-11-04)
+    // at its pre-graduation curve price, below anything that traded at the time.
     const q = await jupBuyQuote(mint, sizeSol).catch(() => null);
-    const net = sizeSol * (1 - PAPER_FEE_PCT / 100);
-    return { signature: null, tokens: q ? q.tokens * (1 - PAPER_FEE_PCT / 100) : priceSol > 0 ? net / priceSol : 0, sol: sizeSol };
+    if (!q) throw new Error("no executable buy quote (paper buy skipped rather than filled at a stale price)");
+    return { signature: null, tokens: q.tokens * (1 - PAPER_FEE_PCT / 100), sol: sizeSol };
   }
   // Buys get one attempt: if the price ran away, chasing it is worse than missing it.
   const sig = await swap(WSOL, mint, BigInt(Math.floor(sizeSol * 1e9)), config.slippageBps, config.priorityFeeLamports);

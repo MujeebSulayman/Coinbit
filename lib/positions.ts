@@ -157,8 +157,11 @@ async function creditWallets(p: Position) {
 export async function closePosition(id: number, reason: string) {
   const p = await db.position.findUnique({ where: { id } });
   if (!p || p.status !== "OPEN") return;
-  const q = (await quotes([p.mint])).get(p.mint);
-  await sellPart(p, p.remainingTokens, q?.priceSol ?? p.currentPriceSol, reason, true);
+  // What selling the whole bag returns right now (Jupiter routes curve and pool coins alike); the market
+  // price is only a fallback. A listed price can lag, or be converted from another quote token.
+  const exec = await jupSellPrice(p.mint, p.remainingTokens).catch(() => null);
+  const price = exec ?? (await quotes([p.mint])).get(p.mint)?.priceSol ?? p.currentPriceSol;
+  await sellPart(p, p.remainingTokens, price, exec ? reason : `${reason} (no live quote: market price)`, true);
 }
 
 const checking = new Set<number>(); // positions whose exit rules are being evaluated
