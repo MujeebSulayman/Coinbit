@@ -8,7 +8,7 @@ import type { Strategy } from "./modes";
 import { jupSellPrice, quotes } from "./market";
 import { flowStats, syncPriceFeeds } from "./pricefeed";
 import { notify, short } from "./telegram";
-import { isStagnant, quoteShock, stopLevel as stopLevelPure } from "./exits";
+import { isStagnant, jumpGuard, quoteShock, stopLevel as stopLevelPure } from "./exits";
 import { startOfDay } from "./time";
 
 export async function isPaused() {
@@ -168,6 +168,9 @@ const checking = new Set<number>(); // positions whose exit rules are being eval
 const belowStop = new Map<number, number>(); // consecutive price readings below the stop
 const lastSample = new Map<number, number>(); // last price-history sample per position
 const recentPrices = new Map<number, { t: number; p: number }[]>(); // short window for the quote-shock exit
+const pendingJump = new Map<number, number>(); // a price that moved >3× in one reading, awaiting confirmation
+const MARK_JUMP = 3; // a move this big between two readings is held...
+const MARK_CONFIRM = 1.5; // ...until the next reading lands within this factor of it
 
 /** Stop level for the trade page and the exit check (see lib/exits). */
 export const stopLevel = (p: { tpHit: number; peakPriceSol: number; entryPriceSol: number }, stopLossPct: number) =>
@@ -189,6 +192,12 @@ async function checkExits(id: number, price: number) {
   try {
     let p = await db.position.findUnique({ where: { id } });
     if (!p || p.status !== "OPEN") return;
+    // One bad reading must not fire a take-profit or stop (#52 "sold" at 21× the real price in the same
+    // second it bought). A >3× move from the last accepted price is held until the next reading confirms it;
+    // a real move costs one reading of delay. Same rule as Memcoin-Sniper-Bot's market-price guard.
+    const guard = jumpGuard(p.currentPriceSol, price, pendingJump.get(id) ?? null, MARK_JUMP, MARK_CONFIRM);
+    if (!guard.accept) return void pendingJump.set(id, guard.pending!);
+    pendingJump.delete(id);
     p = await db.position.update({
       where: { id },
       data: { currentPriceSol: price, peakPriceSol: Math.max(p.peakPriceSol, price) },

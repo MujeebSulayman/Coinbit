@@ -16,7 +16,7 @@
  */
 import { config } from "./config";
 import { db, log } from "./db";
-import { jupBuyQuote, pumpSwapPair, quotes, roundTrip, roundTripReason, solUsd } from "./market";
+import { jupBuy, pumpSwapPair, quotes, roundTrip, roundTripReason, solUsd } from "./market";
 import { strategyMode } from "./modes";
 import { openPosition, riskBlock } from "./positions";
 import { type PortalTrade, startPortal } from "./pumpportal";
@@ -100,7 +100,9 @@ async function handleMigration(m: PortalTrade) {
   const mode = await strategyMode("migration"); // may have been toggled while waiting
   if (mode === "off") return;
 
-  const [now, pair] = await Promise.all([jupBuyQuote(mint, size), pumpSwapPair(mint)]);
+  // Retries cover a fresh graduate Jupiter hasn't indexed yet; "rate-limited" is kept apart from "no route".
+  const [nowQ, pair] = await Promise.all([jupBuy(mint, size, { retryNoRoute: 3 }), pumpSwapPair(mint)]);
+  const now = nowQ.ok ? nowQ.data : null;
   const pool = pair?.pairAddress ?? (await poolFromMigrateTx(m.signature));
   const curve = (await getBondingCurves([mint]).catch(() => new Map())).get(mint);
   const [sol, smart, risk, holders, devPct, solPrice, age, spot] = await Promise.all([
@@ -125,7 +127,7 @@ async function handleMigration(m: PortalTrade) {
   const mcapUsd = now ? now.priceSol * PUMP_TOTAL_SUPPLY * solPrice : (pair?.marketCap ?? null);
 
   let skip: string | null = null;
-  if (!now) skip = "no swap route";
+  if (!nowQ.ok) skip = nowQ.reason === "no-route" ? "no swap route" : `no quote (Jupiter ${nowQ.reason})`;
   else if (sol === null) skip = "pool not found";
   else if (sol < config.migrationMinPoolSol) skip = `pool only ${sol.toFixed(1)} SOL`;
   else if (sol * 2 * solPrice < config.migrationMinLiquidityUsd) skip = `liquidity only $${((sol * 2 * solPrice) / 1000).toFixed(1)}K`;
@@ -165,9 +167,10 @@ async function handleMigration(m: PortalTrade) {
   // fresh one, and skip if the price moved too far either way: falling = it's dumping, rising = chasing.
   let entry = now;
   if (!skip) {
-    const fresh = await jupBuyQuote(mint, size);
+    const freshQ = await jupBuy(mint, size, { priority: "high", retryNoRoute: 2 });
+    const fresh = freshQ.ok ? freshQ.data : null;
     const drift = fresh && now ? (fresh.priceSol / now.priceSol - 1) * 100 : null;
-    if (!fresh || drift === null) skip = "no swap route at buy time";
+    if (!fresh || drift === null) skip = freshQ.ok ? "no swap route at buy time" : `no quote at buy time (Jupiter ${freshQ.reason})`;
     else if (Math.abs(drift) > config.migrationMaxQuoteDriftPct)
       skip = `price moved ${drift >= 0 ? "+" : ""}${drift.toFixed(0)}% during checks`;
     else entry = fresh;

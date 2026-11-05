@@ -74,3 +74,13 @@ export function curveBuyTokens(vSol: number, vTok: number, solIn: number, feePct
   if (vSol <= 0 || vTok <= 0 || net <= 0) return 0;
   return vTok - (vSol * vTok) / (vSol + net);
 }
+
+/**
+ * Bad-tick guard for marks: a move of more than `jump`× from the last accepted price is held until the
+ * next reading lands within `confirm`× of it. Returns whether to accept `price`, and the pending value.
+ */
+export function jumpGuard(last: number, price: number, pending: number | null, jump = 3, confirm = 1.5) {
+  if (!(last > 0) || (price / last <= jump && last / price <= jump)) return { accept: true, pending: null };
+  if (pending && Math.max(price / pending, pending / price) <= confirm) return { accept: true, pending: null };
+  return { accept: false, pending: price };
+}

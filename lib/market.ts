@@ -1,3 +1,4 @@
+import { jupGet, type JupResult } from "./jupiter";
 import { getBondingCurves, PUMP_DECIMALS, PUMP_TOTAL_SUPPLY, WSOL } from "./solana";
 
 export type DexPair = {
@@ -29,10 +30,8 @@ async function getJson<T>(url: string, timeoutMs = 10_000): Promise<T | null> {
 let solUsdCache = { v: 0, at: 0 };
 export async function solUsd(): Promise<number> {
   if (Date.now() - solUsdCache.at < 60_000 && solUsdCache.v > 0) return solUsdCache.v;
-  const j = await getJson<Record<string, { usdPrice?: number }>>(
-    `https://lite-api.jup.ag/price/v3?ids=${WSOL}`,
-  );
-  let v = j?.[WSOL]?.usdPrice ?? 0;
+  const r = await jupGet<Record<string, { usdPrice?: number }>>(`/price/v3?ids=${WSOL}`, { tries: 1 });
+  let v = r.ok ? (r.data[WSOL]?.usdPrice ?? 0) : 0;
   if (!v) {
     const pairs = await dexPairs([WSOL]);
     v = Number(pairs.get(WSOL)?.priceUsd ?? 0);
@@ -118,43 +117,70 @@ export async function quotes(mints: string[]): Promise<Map<string, Quote>> {
 
 /* ---------------- Jupiter quotes (executable prices) ---------------- */
 
-const JUP = "https://lite-api.jup.ag/swap/v1";
+type Priority = "high" | "low";
+type BuyQuote = { tokens: number; priceSol: number; impactPct: number };
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-/** What `sol` buys right now: tokens out and effective price (includes fees and price impact). */
-export async function jupBuyQuote(mint: string, sol: number): Promise<{ tokens: number; priceSol: number; impactPct: number } | null> {
-  const j = await getJson<{ outAmount?: string; priceImpactPct?: string }>(
-    `${JUP}/quote?inputMint=${WSOL}&outputMint=${mint}&amount=${Math.floor(sol * 1e9)}&slippageBps=1500`,
-    5000,
-  );
-  const tokens = Number(j?.outAmount ?? 0) / 10 ** PUMP_DECIMALS;
-  if (!tokens) return null;
-  return { tokens, priceSol: sol / tokens, impactPct: Number(j?.priceImpactPct ?? 0) * 100 };
-}
-
-/** What selling `tokens` returns right now, as an effective price per token. */
-export async function jupSellPrice(mint: string, tokens: number): Promise<number | null> {
-  if (tokens <= 0) return null;
-  const j = await getJson<{ outAmount?: string }>(
-    `${JUP}/quote?inputMint=${mint}&outputMint=${WSOL}&amount=${Math.floor(tokens * 10 ** PUMP_DECIMALS)}&slippageBps=1500`,
-    5000,
-  );
-  const sol = Number(j?.outAmount ?? 0) / 1e9;
-  return sol > 0 ? sol / tokens : null;
-}
-
-/** Sellability check: quote a buy of `sol`, then a sell of exactly those tokens. A coin you can buy but
- *  not sell (honeypot), or that loses a lot on the round trip, shows up here. null = couldn't quote a buy. */
-export async function roundTrip(mint: string, sol: number): Promise<{ sellable: boolean; lossPct: number } | null> {
-  const b = await jupBuyQuote(mint, sol);
-  if (!b) return null;
-  let sellPrice = await jupSellPrice(mint, b.tokens);
-  // A missing sell route on a brand-new coin is often just the aggregator catching up: ask twice more.
-  for (let i = 0; !sellPrice && i < 2; i++) {
-    await new Promise((r) => setTimeout(r, 1500));
-    sellPrice = await jupSellPrice(mint, b.tokens);
+/**
+ * What `sol` buys right now, or why not ("no-route" vs "rate-limited" vs "error"). `retryNoRoute`
+ * re-asks a few times 700ms apart: a coin that just graduated is often not routable for a moment
+ * (Kaiser.charon measured hundreds of false rejections a day without this).
+ */
+export async function jupBuy(mint: string, sol: number, opts: { priority?: Priority; retryNoRoute?: number } = {}): Promise<JupResult<BuyQuote>> {
+  for (let i = 0; ; i++) {
+    const r = await jupGet<{ outAmount?: string; priceImpactPct?: string }>(
+      `/swap/v1/quote?inputMint=${WSOL}&outputMint=${mint}&amount=${Math.floor(sol * 1e9)}&slippageBps=1500`,
+      { priority: opts.priority },
+    );
+    if (r.ok) {
+      const tokens = Number(r.data.outAmount ?? 0) / 10 ** PUMP_DECIMALS;
+      if (tokens > 0) return { ok: true, data: { tokens, priceSol: sol / tokens, impactPct: Number(r.data.priceImpactPct ?? 0) * 100 } };
+      if (i >= (opts.retryNoRoute ?? 0)) return { ok: false, reason: "no-route" };
+    } else if (r.reason !== "no-route" || i >= (opts.retryNoRoute ?? 0)) return r;
+    await sleep(700);
   }
-  if (!sellPrice) return { sellable: false, lossPct: 100 };
-  return { sellable: true, lossPct: (1 - (sellPrice * b.tokens) / sol) * 100 };
+}
+
+/** What `sol` buys right now (null if it can't be quoted, for any reason). */
+export async function jupBuyQuote(mint: string, sol: number, priority: Priority = "low"): Promise<BuyQuote | null> {
+  const r = await jupBuy(mint, sol, { priority });
+  return r.ok ? r.data : null;
+}
+
+/** What selling `tokens` returns right now, as an effective price per token, or why not. */
+export async function jupSell(mint: string, tokens: number, priority: Priority = "high"): Promise<JupResult<number>> {
+  if (tokens <= 0) return { ok: false, reason: "error" };
+  const r = await jupGet<{ outAmount?: string }>(
+    `/swap/v1/quote?inputMint=${mint}&outputMint=${WSOL}&amount=${Math.floor(tokens * 10 ** PUMP_DECIMALS)}&slippageBps=1500`,
+    { priority },
+  );
+  if (!r.ok) return r;
+  const sol = Number(r.data.outAmount ?? 0) / 1e9;
+  return sol > 0 ? { ok: true, data: sol / tokens } : { ok: false, reason: "no-route" };
+}
+
+/** Effective sell price for `tokens` (null if it can't be quoted). Exits and open positions: high priority. */
+export async function jupSellPrice(mint: string, tokens: number, priority: Priority = "high"): Promise<number | null> {
+  const r = await jupSell(mint, tokens, priority);
+  return r.ok ? r.data : null;
+}
+
+/**
+ * Sellability check: quote a buy of `sol`, then a sell of exactly those tokens. A coin you can buy but
+ * not sell (honeypot), or that loses a lot on the round trip, shows up here. Returns null when it
+ * couldn't be checked (e.g. rate limited): that is "unknown", never "unsellable".
+ */
+export async function roundTrip(mint: string, sol: number): Promise<{ sellable: boolean; lossPct: number } | null> {
+  const b = await jupBuy(mint, sol, { retryNoRoute: 2 });
+  if (!b.ok) return null;
+  let sell = await jupSell(mint, b.data.tokens, "low");
+  // A missing sell route on a brand-new coin is often just the aggregator catching up: ask twice more.
+  for (let i = 0; !sell.ok && sell.reason === "no-route" && i < 2; i++) {
+    await sleep(1500);
+    sell = await jupSell(mint, b.data.tokens, "low");
+  }
+  if (!sell.ok) return sell.reason === "no-route" ? { sellable: false, lossPct: 100 } : null;
+  return { sellable: true, lossPct: (1 - (sell.data * b.data.tokens) / sol) * 100 };
 }
 
 export const roundTripReason = (rt: { sellable: boolean; lossPct: number } | null) =>

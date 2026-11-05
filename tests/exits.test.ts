@@ -71,3 +71,15 @@ test("curve buy matches constant product after fees", () => {
   assert.ok(t < (net / vSol) * vTok && t > (net / vSol) * vTok * 0.99);
   assert.equal(curveBuyTokens(0, vTok, 1, 1), 0);
 });
+
+test("jump guard: a >3× tick is held until the next reading confirms it", async () => {
+  const { jumpGuard } = await import("../lib/exits");
+  assert.deepEqual(jumpGuard(1, 1.5, null), { accept: true, pending: null }); // normal move
+  const a = jumpGuard(1, 21, null); // #52-style bad tick
+  assert.equal(a.accept, false);
+  assert.equal(jumpGuard(1, 1.1, a.pending).accept, true); // next reading back to normal: bad tick dropped
+  const b = jumpGuard(1, 0.2, null); // −80% in one reading
+  assert.equal(b.accept, false);
+  assert.equal(jumpGuard(1, 0.21, b.pending).accept, true); // confirmed collapse: acted on one reading later
+  assert.equal(jumpGuard(1, 5, jumpGuard(1, 21, null).pending).accept, false); // 21 then 5: not confirmed
+});

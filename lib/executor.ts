@@ -22,10 +22,10 @@ import {
 import bs58 from "bs58";
 import { config } from "./config";
 import { log } from "./db";
-import { jupBuyQuote } from "./market";
+import { jupGet, jupPost } from "./jupiter";
+import { jupBuy, quotes } from "./market";
 import { sleep, solDelta, tokenDeltas, WSOL } from "./solana";
 
-const JUP = "https://lite-api.jup.ag/swap/v1";
 const PORTAL_TRADE = "https://pumpportal.fun/api/trade-local"; // builds a pump.fun / PumpSwap tx for us to sign (0.5% fee)
 const PAPER_FEE_PCT = 1; // approximates pool/curve fees so paper PnL isn't flattering
 const SELL_ATTEMPTS = 3;
@@ -153,29 +153,21 @@ async function readFill(sig: string, mint: string): Promise<{ tokens: number; so
 
 async function swap(inputMint: string, outputMint: string, amountRaw: bigint, slippageBps: number, priorityFee: number) {
   const user = trader().publicKey.toBase58();
-  const qRes = await fetch(
-    `${JUP}/quote?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amountRaw}&slippageBps=${slippageBps}`,
-  );
-  if (!qRes.ok) throw new Error(`jupiter quote ${qRes.status}: ${await qRes.text()}`);
-  const quote = await qRes.json();
-
-  const sRes = await fetch(`${JUP}/swap`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      quoteResponse: quote,
-      userPublicKey: user,
-      wrapAndUnwrapSol: true,
-      dynamicComputeUnitLimit: true,
-      prioritizationFeeLamports: priorityFee,
-    }),
+  const q = await jupGet<unknown>(`/swap/v1/quote?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amountRaw}&slippageBps=${slippageBps}`, {
+    priority: "high",
   });
-  if (!sRes.ok) throw new Error(`jupiter swap ${sRes.status}: ${await sRes.text()}`);
-  const { swapTransaction, lastValidBlockHeight } = (await sRes.json()) as { swapTransaction: string; lastValidBlockHeight: number };
-
-  const tx = VersionedTransaction.deserialize(Buffer.from(swapTransaction, "base64"));
+  if (!q.ok) throw new Error(`jupiter quote failed (${q.reason}${q.status ? ` ${q.status}` : ""})`);
+  const sw = await jupPost<{ swapTransaction: string; lastValidBlockHeight: number }>("/swap/v1/swap", {
+    quoteResponse: q.data,
+    userPublicKey: user,
+    wrapAndUnwrapSol: true,
+    dynamicComputeUnitLimit: true,
+    prioritizationFeeLamports: priorityFee,
+  });
+  if (!sw.ok) throw new Error(`jupiter swap failed (${sw.reason}${sw.status ? ` ${sw.status}` : ""})`);
+  const tx = VersionedTransaction.deserialize(Buffer.from(sw.data.swapTransaction, "base64"));
   tx.sign([trader()]);
-  return sendAndConfirm(tx, lastValidBlockHeight);
+  return sendAndConfirm(tx, sw.data.lastValidBlockHeight);
 }
 
 /* ---------------- fast path (launch sniper) ---------------- */
@@ -325,9 +317,18 @@ export async function buy(mint: string, sizeSol: number, priceSol: number, mode:
     if (paperTokens && paperTokens > 0) return { signature: null, tokens: paperTokens, sol: sizeSol };
     // No executable quote = no paper fill. Falling back to the caller's price once filled SLOP (2026-11-04)
     // at its pre-graduation curve price, below anything that traded at the time.
-    const q = await jupBuyQuote(mint, sizeSol).catch(() => null);
-    if (!q) throw new Error("no executable buy quote (paper buy skipped rather than filled at a stale price)");
-    return { signature: null, tokens: q.tokens * (1 - PAPER_FEE_PCT / 100), sol: sizeSol };
+    const q = await jupBuy(mint, sizeSol, { priority: "high", retryNoRoute: 2 });
+    if (!q.ok) throw new Error(`no executable buy quote (${q.reason}): paper buy skipped rather than filled at a stale price`);
+    // Cross-check against an independent price (curve or market): an executable quote should sit a little
+    // above it (fees, impact), never far away. Memcoin-Sniper-Bot uses the same 0.8–1.25 band after
+    // buying "at 114× the index" once.
+    const index = (await quotes([mint]).catch(() => new Map())).get(mint)?.priceSol;
+    if (index && index > 0) {
+      const ratio = q.data.priceSol / index;
+      if (ratio < 0.8 || ratio > 1.25)
+        throw new Error(`buy quote ${q.data.priceSol.toExponential(3)} vs market ${index.toExponential(3)} SOL (${ratio.toFixed(2)}×): paper buy skipped`);
+    }
+    return { signature: null, tokens: q.data.tokens * (1 - PAPER_FEE_PCT / 100), sol: sizeSol };
   }
   // Buys get one attempt: if the price ran away, chasing it is worse than missing it.
   const sig = await swap(WSOL, mint, BigInt(Math.floor(sizeSol * 1e9)), config.slippageBps, config.priorityFeeLamports);

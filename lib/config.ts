@@ -30,6 +30,7 @@ export const config = {
   rpcFallbackUrls: (env.SOLANA_RPC_FALLBACK_URLS ?? "").split(",").map((s) => s.trim()).filter(Boolean),
   rpcMaxRps: num(env.RPC_MAX_RPS, 10),
   pumpPortalKey: env.PUMPPORTAL_API_KEY ?? "",
+  jupiterApiKey: env.JUPITER_API_KEY ?? "", // free at portal.jup.ag: doubles Jupiter's rate limit and uses api.jup.ag
 
   mode: (env.TRADING_MODE === "live" ? "live" : "paper") as "live" | "paper",
   traderKey: env.TRADER_PRIVATE_KEY ?? "",
